@@ -5,7 +5,7 @@ import { sampleGlb } from './sampleGlb';
 const JSZip: typeof import('jszip') = createRequire(import.meta.url)('jszip');
 
 async function blankDeck(page: Page) {
-  await page.goto('/');
+  await page.goto('/editor');
   await expect(page.getByTestId('slide-canvas')).toBeVisible();
   await page.getByRole('tab', { name: 'File', exact: true }).click();
   await page.getByRole('button', { name: 'New blank presentation' }).click();
@@ -233,7 +233,7 @@ test('imports the supplied FBX ZIP and exports its resolved textures', async ({ 
 test('uses the PowerPoint layout to center title and subtitle text', async ({ page }) => {
   const fixture = process.env.FORMA_CENTER_DECK;
   test.skip(!fixture, 'Set FORMA_CENTER_DECK to the title-slide PPTX fixture.');
-  await page.goto('/');
+  await page.goto('/editor');
   await expect(page.getByTestId('slide-canvas')).toBeVisible();
   await page.getByLabel('Import PPTX file').setInputFiles(fixture!);
   const canvas = page.getByTestId('slide-canvas');

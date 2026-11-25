@@ -7,6 +7,9 @@ import { CollaborationDialog } from './CollaborationDialog';
 import { ZoomPercentage } from './ZoomPercentage';
 import { SidebarResize, SidebarTabs, type EditorPane } from './EditorSidebar';
 import { emptyRoom, RoomClient } from './collaboration';
+import { createCloudDeck } from './cloudStore';
+import type { CloudWorkspace } from './cloudWorkspace';
+import type { EditorAccount } from './Site';
 import { applyDeckPatch } from './deckPatch.mjs';
 import { MediaSettings, RecordAudio } from './MediaSettings';
 import { SpeakerNotesDialog, openPresenterWindow } from './PresenterTools';
@@ -54,6 +57,8 @@ import {
   Ban,
   Box,
   Check,
+  CircleUserRound,
+  Cloud,
   ChevronLeft,
   ChevronRight,
   AlignLeft,
@@ -740,7 +745,7 @@ async function initialProject(withDemo: boolean) {
   return project;
 }
 
-export default function App() {
+export default function App({ account, cloud }: { account: EditorAccount; cloud?: CloudWorkspace }) {
   const [preferences, setPreferences] = useState(readPreferences);
   const [options, setOptions] = useState<OptionsSection>();
   useEffect(() => {
@@ -749,6 +754,7 @@ export default function App() {
   const [project, setProjectState] = useState<Project | null>(null);
   const [roomStatus, setRoomStatus] = useState(emptyRoom);
   const [showRoom, setShowRoom] = useState(false);
+  const [cloudStatus, setCloudStatus] = useState(cloud?.status);
   const roomClient = useRef<RoomClient>(undefined);
   const roomOrigin = useRef<Project>(undefined);
   const intendedRoom = useRef<'create' | 'join'>('create');
@@ -793,10 +799,7 @@ export default function App() {
   const [editorWidth, setEditorWidth] = useState(() => window.innerWidth);
   const openSidebarButton = useRef<HTMLButtonElement>(null);
   const slidesToggleButton = useRef<HTMLButtonElement>(null);
-  const focusSidebarButton = useCallback(
-    () => openSidebarButton.current?.focus({ preventScroll: true }),
-    [],
-  );
+  const focusSidebarButton = useCallback(() => openSidebarButton.current?.focus({ preventScroll: true }), []);
   useEffect(() => {
     const resize = () => setEditorWidth(window.innerWidth);
     window.addEventListener('resize', resize);
@@ -976,7 +979,8 @@ export default function App() {
   useEffect(
     () => () => {
       roomClient.current?.close();
-      if (roomOrigin.current) releaseProject(roomOrigin.current);
+      if (roomOrigin.current) releaseProject(roomOrigin.current, current.current ?? undefined);
+      if (current.current) releaseProject(current.current);
     },
     [],
   );
@@ -1210,10 +1214,10 @@ export default function App() {
     const previous = current.current;
     if (!fromRoom) {
       roomClient.current?.close();
-      if (roomOrigin.current && roomOrigin.current !== p) releaseProject(roomOrigin.current);
+      if (roomOrigin.current && roomOrigin.current !== p) releaseProject(roomOrigin.current, p);
       roomOrigin.current = undefined;
     }
-    if (previous && previous !== p && previous !== roomOrigin.current) releaseProject(previous);
+    if (previous && previous !== p && previous !== roomOrigin.current) releaseProject(previous, p);
     generation.current++;
     setClipboard([]);
     clipboardSlide.current = undefined;
@@ -1251,8 +1255,11 @@ export default function App() {
       },
       onProject: (shared, kind, remote) => {
         const previous = current.current;
-        if (kind === 'join' && intendedRoom.current === 'join') {
-          roomOrigin.current = previous ?? undefined;
+        if (kind === 'join' && (cloud || intendedRoom.current === 'join')) {
+          if (!cloud || !roomOrigin.current) {
+            if (cloud && previous) cloud.track(previous);
+            roomOrigin.current = previous ?? undefined;
+          }
           adopt(shared, true);
           return;
         }
@@ -1283,11 +1290,16 @@ export default function App() {
     roomClient.current.open(type, source, code);
   }
   function leaveRoom(returnToPrevious = false) {
+    if (cloud && !returnToPrevious && current.current) {
+      setShowRoom(false);
+      void saveToMyDecks();
+      return;
+    }
     roomClient.current?.close();
     const previous = roomOrigin.current;
     if (returnToPrevious && previous) adopt(previous);
     else if (previous) {
-      releaseProject(previous);
+      releaseProject(previous, current.current ?? undefined);
       roomOrigin.current = undefined;
     }
     setShowRoom(false);
@@ -1295,6 +1307,11 @@ export default function App() {
   useEffect(() => {
     let canceled = false;
     (async () => {
+      if (cloud) {
+        adopt(cloud.project);
+        setBusy('');
+        return;
+      }
       const recovered = preferences.localRecovery ? await restoreProject().catch(() => undefined) : undefined;
       const p = recovered || (await initialProject(true));
       if (canceled) {
@@ -1312,6 +1329,30 @@ export default function App() {
       canceled = true;
     };
   }, []);
+  useEffect(() => {
+    if (!cloud) return;
+    const unwatch = cloud.watch(setCloudStatus);
+    const resume = () => void cloud.sync();
+    const preserve = () => {
+      if (document.visibilityState === 'hidden' && cloud.needsLocalSave)
+        void cloud.flushLocal().catch(() => {});
+    };
+    const beforeUnload = (event: BeforeUnloadEvent) => {
+      if (cloud.needsLocalSave) {
+        event.preventDefault();
+        event.returnValue = '';
+      }
+    };
+    window.addEventListener('online', resume);
+    window.addEventListener('beforeunload', beforeUnload);
+    document.addEventListener('visibilitychange', preserve);
+    return () => {
+      unwatch();
+      window.removeEventListener('online', resume);
+      window.removeEventListener('beforeunload', beforeUnload);
+      document.removeEventListener('visibilitychange', preserve);
+    };
+  }, [cloud]);
   useEffect(() => {
     const area = canvasArea.current;
     if (!area) return;
@@ -1404,6 +1445,10 @@ export default function App() {
   }, [scale, slide?.id, slide?.objects]);
   useEffect(() => {
     if (!project) return;
+    if (cloud) {
+      if (!roomOrigin.current) cloud.track(project);
+      return;
+    }
     if (!preferences.localRecovery) {
       setSaved('Local recovery off');
       return;
@@ -1426,7 +1471,7 @@ export default function App() {
       active = false;
       clearTimeout(timer);
     };
-  }, [project, preferences.localRecovery]);
+  }, [project, preferences.localRecovery, cloud]);
   useEffect(() => {
     if (!notice) return;
     const timer = setTimeout(() => setNotice(''), 6500);
@@ -1831,17 +1876,17 @@ export default function App() {
   function addBlank() {
     insertSlide('blank');
   }
-  function insertSlide(layout: string) {
+  function insertSlide(layout: string, after = index) {
     if (!deck) return;
-    const next = insertBlankSlide(deck, index);
+    const next = insertBlankSlide(deck, after);
     const custom = deck.savedLayouts?.find(({ id }) => id === layout);
-    const added = next.slides[index + 1];
+    const added = next.slides[after + 1];
     if (custom) {
       added.savedLayout = custom.id;
       added.objects = custom.placeholders.map((object) => ({ ...structuredClone(object), id: uid() }));
     } else added.objects = presetObjects(layout as SlideLayout, deck);
     commit(next);
-    selectSlide(index + 1);
+    selectSlide(after + 1);
   }
   function saveCustomLayout(name: string) {
     if (!deck || !slide || !name.trim()) return;
@@ -2875,9 +2920,70 @@ export default function App() {
     menu?.returnFocus?.focus({ preventScroll: true });
     setMenu(null);
   }
+  async function saveBeforeLeaving(forceLocal = false) {
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    const active = current.current;
+    if (!active) return;
+    if (cloud) {
+      if (!roomOrigin.current) cloud.track(active);
+      await cloud.finishEditing();
+    } else if (forceLocal || preferences.localRecovery) {
+      await savedQueue.current.catch(() => {});
+      await saveProject(active);
+    }
+  }
+  async function leaveEditor(destination: string | (() => Promise<void>)) {
+    setBusy('Saving workspace…');
+    try {
+      await saveBeforeLeaving(typeof destination === 'string' && destination.startsWith('/sign-in'));
+      if (typeof destination === 'string') location.assign(destination);
+      else await destination();
+    } catch (error) {
+      setNotice(message(error));
+      setBusy('');
+    }
+  }
+  async function saveToMyDecks() {
+    if (!account.userId) {
+      if (account.enabled) await leaveEditor('/sign-in?next=%2Feditor');
+      return;
+    }
+    setBusy('Saving a copy to My Decks…');
+    try {
+      await saveBeforeLeaving();
+      if (!current.current) return;
+      const copy = await createCloudDeck(account.userId, current.current);
+      if (!roomOrigin.current && cloud?.status.phase === 'conflict') {
+        await cloud.discardDraft().catch(() => {});
+      }
+      location.assign('/editor/' + copy.id);
+    } catch (error) {
+      setNotice(message(error));
+    } finally {
+      setBusy('');
+    }
+  }
+  async function reloadCloudVersion() {
+    if (!cloud || !window.confirm('Discard the unsynced edits on this device and load the cloud version?'))
+      return;
+    setBusy('Opening the cloud version…');
+    try {
+      await cloud.discardDraft();
+      location.reload();
+    } catch (error) {
+      setNotice(message(error));
+      setBusy('');
+    }
+  }
   async function newPresentation() {
     setBusy('Creating presentation…');
     try {
+      if (cloud && account.userId) {
+        await saveBeforeLeaving();
+        const blank = await createCloudDeck(account.userId, await initialProject(false));
+        location.assign('/editor/' + blank.id);
+        return;
+      }
       await savedQueue.current;
       await clearSavedProject();
       adopt(await initialProject(false));
@@ -2934,6 +3040,16 @@ export default function App() {
     try {
       if (file.size > 150 * 1024 * 1024) throw new Error('Please use a presentation smaller than 150 MB.');
       const p = await importPptx(new Uint8Array(await file.arrayBuffer()), file.name);
+      if (cloud && account.userId) {
+        try {
+          await saveBeforeLeaving();
+          const imported = await createCloudDeck(account.userId, p);
+          location.assign('/editor/' + imported.id);
+        } finally {
+          releaseProject(p);
+        }
+        return;
+      }
       const check = exportModelWarnings(p.deck, p.assets);
       adopt(p);
       setNotice(
@@ -3400,7 +3516,9 @@ export default function App() {
       }
       if (e.key === 'Delete' || e.key === 'Backspace') {
         if (
-          (e.target as HTMLElement).closest('.animation-pane, .context-menu, .sidebar-tabbar, .sidebar-resize')
+          (e.target as HTMLElement).closest(
+            '.animation-pane, .context-menu, .sidebar-tabbar, .sidebar-resize',
+          )
         )
           return;
         e.preventDefault();
@@ -5369,13 +5487,19 @@ export default function App() {
         }}
       />
       <header className="app-header" inert={previewLocked || presenting !== null}>
-        <div className="brand">
+        <button
+          type="button"
+          className="brand"
+          aria-label="Forma home"
+          disabled={!!busy}
+          onClick={() => void leaveEditor('/')}
+        >
           <span className="brand-icon">
             <Layers size={22} />
           </span>
           forma
           <span className="brand-divider" />
-        </div>
+        </button>
         <div className="document-title">
           <input
             aria-label="Presentation name"
@@ -5430,8 +5554,8 @@ export default function App() {
             </span>
           </button>
           <span className="local-status">
-            <ShieldCheck size={14} />
-            {saved}
+            {cloud ? <Cloud size={14} /> : <ShieldCheck size={14} />}
+            {cloud ? (roomOrigin.current ? 'Room workspace' : cloudStatus?.label) : saved}
           </span>
           <button
             className="button"
@@ -5451,6 +5575,44 @@ export default function App() {
             <Play size={14} fill="currentColor" />
             <span>Present</span>
           </button>
+          {account.enabled && (
+            <details
+              className="editor-account"
+              onBlur={(event) => {
+                if (!event.currentTarget.contains(event.relatedTarget)) event.currentTarget.open = false;
+              }}
+              onKeyDown={(event) => {
+                if (event.key !== 'Escape' || !event.currentTarget.open) return;
+                event.stopPropagation();
+                event.currentTarget.open = false;
+                event.currentTarget.querySelector('summary')?.focus();
+              }}
+            >
+              <summary className="button" aria-label="Account" title="Account">
+                <CircleUserRound size={17} />
+              </summary>
+              <div className="editor-account-panel">
+                {account.email && <small>{account.email}</small>}
+                <button
+                  type="button"
+                  disabled={!!busy}
+                  onClick={() => void leaveEditor(account.userId ? '/decks' : '/sign-in')}
+                >
+                  {account.userId ? 'My Decks' : 'Sign In'}
+                </button>
+                {(!cloud || roomOrigin.current) && (
+                  <button type="button" disabled={!project || !!busy} onClick={() => void saveToMyDecks()}>
+                    {roomOrigin.current ? 'Save a Copy to My Decks' : 'Save to My Decks'}
+                  </button>
+                )}
+                {account.userId && (
+                  <button type="button" disabled={!!busy} onClick={() => void leaveEditor(account.signOut)}>
+                    Sign Out
+                  </button>
+                )}
+              </div>
+            </details>
+          )}
         </div>
       </header>
       <Ribbon
@@ -5573,6 +5735,11 @@ export default function App() {
                           className="slide-thumb-button"
                           onClick={() => selectSlide(i)}
                           onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !e.repeat) {
+                              e.preventDefault();
+                              insertSlide('blank', i);
+                              return;
+                            }
                             if (e.key !== 'ContextMenu' && !(e.shiftKey && e.key === 'F10')) return;
                             e.preventDefault();
                             openSlideActions(i, e.currentTarget);
@@ -5849,7 +6016,11 @@ export default function App() {
           <div className="canvas-caption">
             <span>
               <LockKeyhole size={12} />
-              {roomStatus.code ? 'Shared with this room' : 'Your files stay in this browser'}
+              {roomStatus.code || (cloud && roomOrigin.current)
+                ? 'Shared room workspace'
+                : cloud
+                  ? cloudStatus?.label
+                  : 'Your files stay in this browser'}
             </span>
             <span>
               {view === 'sorter'
@@ -6375,6 +6546,37 @@ export default function App() {
           </button>
         </div>
       </footer>
+      {cloudStatus && !roomOrigin.current && ['error', 'conflict', 'offline'].includes(cloudStatus.phase) && (
+        <div className="toast cloud-save-notice" role="alert">
+          <AlertTriangle size={16} />
+          <span>{cloudStatus.label}</span>
+          {cloudStatus.phase === 'conflict' ? (
+            <>
+              <button className="button" type="button" disabled={!!busy} onClick={() => void saveToMyDecks()}>
+                Save a Copy
+              </button>
+              <button
+                className="button"
+                type="button"
+                disabled={!!busy}
+                onClick={() => void reloadCloudVersion()}
+              >
+                Reload Cloud Version
+              </button>
+            </>
+          ) : (
+            <button
+              className="button"
+              type="button"
+              disabled={!!busy}
+              onClick={() => void cloud?.sync()}
+              title={cloudStatus.error}
+            >
+              Retry
+            </button>
+          )}
+        </div>
+      )}
       {notice && (
         <div className="toast" role="status">
           <Check size={16} />
@@ -6389,7 +6591,6 @@ export default function App() {
           <div className="busy-card">
             <div className="spinner" />
             <strong>{busy}</strong>
-            <span>Keeping your presentation on your device.</span>
           </div>
         </div>
       )}

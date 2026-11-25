@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 
 const JSZip: typeof import('jszip') = createRequire(import.meta.url)('jszip');
 async function blank(page: Page) {
-  await page.goto('/');
+  await page.goto('/editor');
   await page.getByRole('tab', { name: 'File', exact: true }).click();
   await page.getByRole('button', { name: 'New blank presentation' }).click();
   await expect(page.getByLabel('Presentation name')).toHaveValue('Untitled presentation');
@@ -171,7 +171,7 @@ test('previews a PowerPoint-authored paragraph animation and preserves its timin
 }) => {
   const fixture = process.env.FORMA_CENTER_DECK;
   test.skip(!fixture, 'Set FORMA_CENTER_DECK to the PowerPoint-authored sample presentation.');
-  await page.goto('/');
+  await page.goto('/editor');
   await expect(page.getByTestId('slide-canvas')).toBeVisible();
   await page.getByLabel('Import PPTX file').setInputFiles(fixture!);
   await expect(page.getByRole('status')).toContainText('Presentation imported');

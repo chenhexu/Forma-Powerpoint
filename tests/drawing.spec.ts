@@ -10,7 +10,7 @@ async function draw(page: Page, points: [number, number][]) {
 test('selects and styles ink with the lasso, erases part of a stroke, and exports ink shapes', async ({
   page,
 }) => {
-  await page.goto('/');
+  await page.goto('/editor');
   await page.getByRole('tab', { name: 'File', exact: true }).click();
   await page.getByRole('button', { name: 'New blank presentation' }).click();
   const canvas = page.getByTestId('slide-canvas');

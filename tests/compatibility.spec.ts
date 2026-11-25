@@ -8,7 +8,7 @@ const JSZip: typeof import('jszip') = createRequire(import.meta.url)('jszip');
 
 test('exports and reimports the PowerPoint compatibility deck', async ({ page }, testInfo) => {
   test.setTimeout(90_000);
-  await page.goto('/');
+  await page.goto('/editor');
   const manifest = await page.evaluate(async () => {
     const fixture = '/tests/compatibilityDeck.ts';
     const storage = '/src/storage.ts';

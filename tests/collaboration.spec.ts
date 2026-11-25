@@ -8,7 +8,7 @@ test('shares a deck by room code, merges concurrent edits, and restores a versio
   const one = await host.newPage();
   const two = await guest.newPage();
   try {
-    await Promise.all([one.goto('/'), two.goto('/')]);
+    await Promise.all([one.goto('/editor'), two.goto('/editor')]);
     const collaboration = (page: typeof one) =>
       page.getByRole('button', { name: 'Collaborate', exact: true });
     await collaboration(one).click();

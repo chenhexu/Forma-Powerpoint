@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 
 const JSZip: typeof import('jszip') = createRequire(import.meta.url)('jszip');
 async function blank(page: Page) {
-  await page.goto('/');
+  await page.goto('/editor');
   await page.getByRole('tab', { name: 'File', exact: true }).click();
   await page.getByRole('button', { name: 'New blank presentation' }).click();
   await expect(page.getByLabel('Presentation name')).toHaveValue('Untitled presentation');

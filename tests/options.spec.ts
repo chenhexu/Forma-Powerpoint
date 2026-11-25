@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 
 test('customizes Draw and Quick Access through Options and keeps the choices on reload', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/editor');
   const tab = (name: string) => page.getByRole('tab', { name, exact: true });
   const panel = page.locator('.ribbon').getByRole('tabpanel');
   await expect(page.getByTestId('slide-canvas')).toBeVisible();
@@ -45,7 +45,7 @@ test('customizes Draw and Quick Access through Options and keeps the choices on 
 test('opens collapsed ribbon commands from a tab and closes them after returning to the canvas', async ({
   page,
 }) => {
-  await page.goto('/');
+  await page.goto('/editor');
   const canvas = page.getByTestId('slide-canvas');
   await expect(canvas).toBeVisible();
   const panel = page.locator('.ribbon').getByRole('tabpanel');
@@ -61,7 +61,7 @@ test('opens collapsed ribbon commands from a tab and closes them after returning
 });
 
 test('reduces transition motion when enabled through Accessibility options', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/editor');
   await expect(page.getByTestId('slide-canvas')).toBeVisible();
   const panel = page.locator('.ribbon').getByRole('tabpanel');
   const tab = (name: string) => page.getByRole('tab', { name, exact: true });

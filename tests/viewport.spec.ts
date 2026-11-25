@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 
 test('docks editing panels in closable tabs and resizes or collapses both sidebars', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/editor');
   const canvas = page.getByTestId('slide-canvas');
   const area = page.locator('.canvas-area');
   const sidebar = page.getByRole('complementary', { name: 'Editing sidebar' });
@@ -74,7 +74,7 @@ test('docks editing panels in closable tabs and resizes or collapses both sideba
 });
 
 test('keeps the ribbon height and canvas area steady between Home and Insert', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/editor');
   const home = page.getByRole('tab', { name: 'Home', exact: true });
   const insert = page.getByRole('tab', { name: 'Insert', exact: true });
   const panel = page.locator('.ribbon').getByRole('tabpanel');
@@ -102,7 +102,7 @@ test('keeps the ribbon height and canvas area steady between Home and Insert', a
 
 test('keeps ribbon and status bar in the viewport while editor sections scroll', async ({ page }) => {
   await page.setViewportSize({ width: 1000, height: 430 });
-  await page.goto('/');
+  await page.goto('/editor');
   const canvas = page.getByTestId('slide-canvas');
   await expect(canvas).toBeVisible();
   await canvas.getByTestId('object-model').click();
@@ -155,7 +155,7 @@ test('keeps ribbon and status bar in the viewport while editor sections scroll',
 });
 
 test('shows unavailable tabs, effects, timing fields and menu choices in gray', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/editor');
   await expect(page.getByTestId('slide-canvas')).toBeVisible();
   const panel = page.locator('.ribbon').getByRole('tabpanel');
   const tab = (name: string) => page.getByRole('tab', { name, exact: true });
@@ -201,7 +201,7 @@ test('shows unavailable tabs, effects, timing fields and menu choices in gray', 
 test('keeps Insert commands within the window and opens overflow commands on small screens', async ({
   page,
 }) => {
-  await page.goto('/');
+  await page.goto('/editor');
   await expect(page.getByTestId('slide-canvas')).toBeVisible();
   await page.getByRole('tab', { name: 'Insert', exact: true }).click();
   const panel = page.locator('.ribbon').getByRole('tabpanel');

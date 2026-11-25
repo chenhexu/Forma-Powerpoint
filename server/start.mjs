@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { attachRooms, ROOM_ENDPOINT } from './rooms.mjs';
 
 const root = fileURLToPath(new URL('../dist', import.meta.url));
+const appPath = /^\/(?:editor(?:\/[0-9a-f-]{36})?|decks|sign-in|auth\/callback)?\/?$/i;
 const mime = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -28,7 +29,7 @@ const server = createServer(async (request, response) => {
       response.writeHead(426, { Upgrade: 'websocket' }).end();
       return;
     }
-    const file = resolve(root, '.' + (pathname === '/' ? '/index.html' : pathname));
+    const file = resolve(root, '.' + (appPath.test(pathname) ? '/index.html' : pathname));
     if (!file.startsWith(root + sep) || !(await stat(file)).isFile()) {
       response.writeHead(404).end();
       return;

@@ -1,6 +1,6 @@
 # Forma
 
-Forma is a local browser editor for PowerPoint presentations, with a desktop-style ribbon, native 3D models, and Morph transitions. It opens with a two-slide 3D example. Your files are processed in the browser, and the most recent session is saved in IndexedDB on this device.
+Forma is a browser editor for PowerPoint presentations, with a desktop-style ribbon, native 3D models, and Morph transitions. Open the editor to see a two-slide 3D example. Your files are processed in the browser, and the most recent guest session is saved in IndexedDB on this device.
 
 ## Run locally
 
@@ -11,7 +11,7 @@ npm ci
 npm run dev
 ```
 
-Open the local address Vite prints, typically [localhost:5173](http://127.0.0.1:5173). Use a browser with WebGL 2 for live 3D rendering.
+Open the local address Vite prints, typically [localhost:5173](http://127.0.0.1:5173), and choose **Open Editor**. Use a browser with WebGL 2 for live 3D rendering.
 
 1. Use **File → Open PPTX** to import a deck, or start a blank presentation.
 2. Right-click a slide thumbnail to add, duplicate, move, or delete slides. Right-click an object or blank space on a slide for the available editing actions. Use Shift-click to select multiple objects, then align or distribute them from **Home**.
@@ -83,3 +83,25 @@ Use **File → Print / Save PDF** for slides, three-slide handouts, or speaker n
 Use the Vite development server for local testing. To serve Forma with the relay in production, run `npm ci`, `npm run build`, and `npm start` on the same machine. The server listens on port 4173 by default. For access across devices, serve it behind HTTPS and forward WebSocket upgrades on `/forma-rooms`, preserving the Host header. Everyone uses the resulting HTTPS address. Static hosting alone has no collaboration relay.
 
 Rooms have no accounts. The code grants editing access to the shared presentation. The relay keeps rooms and their saved versions in memory. A room expires after 30 minutes with nobody connected, and a server restart clears the rooms. A shared deck can use up to 65 MiB of binary data, including its source file and loaded media. Export a PPTX or keep a local copy to save the shared work.
+
+## Accounts and cloud decks
+
+Forma opens at `/`. The editor at `/editor` supports importing, editing, exporting, and local recovery without an account. The latest local deck stays in the browser. Sign in and choose **Save to My Decks** to store a copy in your account, or create and import directly from **My Decks**. Cloud decks autosave while you edit and have a private Trash you can restore from.
+
+### Configure the backend
+
+1. Create a Supabase project and apply the migration in [supabase/migrations](supabase/migrations), using the Supabase CLI or SQL Editor. The migration creates the private library and the private `forma-parts` bucket with ownership policies.
+2. Configure [Google](https://supabase.com/docs/guides/auth/social-sign-in/auth-google) and [Microsoft Azure](https://supabase.com/docs/guides/auth/social-sign-in/auth-azure) in Supabase Auth. For Microsoft, register an app that supports personal, work, and school accounts, and configure the email verification claims described in the Azure guide. Use the provider callback URL shown by Supabase when configuring Google Cloud and Microsoft Entra. Store the provider client secrets in Supabase.
+3. Set **Site URL** in Supabase Auth to the public HTTPS address of Forma. Add that address with `/auth/callback` to **Redirect URLs**. For development, also add `http://127.0.0.1:5173/auth/callback` if that is your Vite address.
+4. Copy [.env.example](.env.example) to `.env.local`. Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` to the project URL and publishable key. Vite includes these values in the frontend build. Keep private keys and provider secrets out of the frontend environment.
+5. Run `npm run build` and `npm start` to serve the home page, callback, and editor routes from the existing Node server. In production proxy HTTPS and WebSocket upgrades to the same server. Run a separate Supabase project for staging if you need to test both OAuth providers before changing production settings.
+
+Cloud projects keep the source PPTX, editable slide data, and media. Save failures keep pending changes on the device when browser storage is available. If a second session saves first, use **Save a Copy** or **Reload Cloud Version**. Starting or joining a room from a cloud deck opens a temporary workspace. Use **Save a Copy to My Decks** to keep the shared result in your account. Moving a deck to Trash retains its files for restore.
+
+To exercise cloud workflows locally without a Supabase project, run the browser test with the mock service configuration.
+
+```sh
+VITE_SUPABASE_URL=https://forma-test.supabase.co \
+VITE_SUPABASE_PUBLISHABLE_KEY=mock-publishable-key \
+npm run test:e2e -- tests/cloud.spec.ts
+```

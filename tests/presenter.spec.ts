@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 
 test('edits native notes and keeps them in a separate presenter window', async ({ page }, testInfo) => {
-  await page.goto('/');
+  await page.goto('/editor');
   await expect(page.getByTestId('slide-canvas')).toBeVisible();
   await page.getByRole('tab', { name: 'File', exact: true }).click();
   await page.getByRole('button', { name: 'New blank presentation' }).click();

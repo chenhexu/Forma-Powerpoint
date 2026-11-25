@@ -5,7 +5,7 @@ import { createRequire } from 'node:module';
 const JSZip: typeof import('jszip') = createRequire(import.meta.url)('jszip');
 
 test('generates slides, rehearses a show, and exports a native template and show batch', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/editor');
   await expect(page.getByTestId('slide-canvas')).toBeVisible();
   const tab = (name: string) => page.getByRole('tab', { name, exact: true });
   await tab('File').click();
@@ -62,7 +62,7 @@ test('generates slides, rehearses a show, and exports a native template and show
 });
 
 test('prints notes pages and exposes the accessibility review', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/editor');
   await expect(page.getByTestId('slide-canvas')).toBeVisible();
   await page.getByRole('tab', { name: 'Slide Show', exact: true }).click();
   await page.getByRole('button', { name: 'Speaker Notes', exact: true }).click();

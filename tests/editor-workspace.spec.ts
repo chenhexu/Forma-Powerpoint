@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
 async function blankPresentation(page: Page) {
-  await page.goto('/');
+  await page.goto('/editor');
   await page.getByRole('tab', { name: 'File', exact: true }).click();
   await page.getByRole('button', { name: 'New blank presentation' }).click();
   await expect(page.getByLabel('Presentation name')).toHaveValue('Untitled presentation');

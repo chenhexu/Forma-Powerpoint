@@ -206,8 +206,11 @@ function readLink(node: Element | undefined, rels: Document, slidePart: string):
 function makeAsset(bytes: Uint8Array, mime: string): Asset {
   return { bytes, mime, url: URL.createObjectURL(new Blob([bytes as BlobPart], { type: mime })) };
 }
-export function releaseProject(project: Project) {
-  Object.values(project.assets).forEach((a) => URL.revokeObjectURL(a.url));
+export function releaseProject(project: Project, preserve?: Project) {
+  const live = new Set(Object.values(preserve?.assets ?? {}).map((asset) => asset.url));
+  for (const { url } of Object.values(project.assets)) {
+    if (!live.has(url)) URL.revokeObjectURL(url);
+  }
 }
 
 export async function importPptx(bytes: Uint8Array, name: string): Promise<Project> {

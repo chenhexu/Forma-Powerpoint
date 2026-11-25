@@ -442,6 +442,7 @@ export function Canvas({
   const [cropping, setCropping] = useState<string | null>(null);
   const [lastEdit, setLastEdit] = useState<number | undefined>();
   const [delta, setDelta] = useState<Point | null>(null);
+  const [frameRotation, setFrameRotation] = useState<{ id: string; degrees: number }>();
   const [ringPose, setRingPose] = useState<Pose | null>(null);
   const [freePose, setFreePose] = useState<Pose | null>(null);
   const [inkDraft, setInkDraft] = useState<Point[]>([]);
@@ -615,6 +616,7 @@ export function Canvas({
     e.preventDefault();
     (e.currentTarget as HTMLElement).focus({ preventScroll: true });
     const start = localPoint(e);
+    if (mode === 'rotate') setFrameRotation({ id: o.id, degrees: o.rotation });
     const center = { x: o.x + o.w / 2, y: o.y + o.h / 2 };
     const angleAt = (point: Point) => Math.atan2(point.y - center.y, point.x - center.x);
     let result = { ...o };
@@ -671,6 +673,7 @@ export function Canvas({
       if (mode === 'rotate') {
         result.rotation = o.rotation + ((angleAt(point) - angleAt(start)) * 180) / Math.PI;
         if (event.shiftKey) result.rotation = Math.round(result.rotation / 15) * 15;
+        setFrameRotation({ id: o.id, degrees: result.rotation });
       } else if (mode === 'move') {
         result.x = o.x + offset.x;
         result.y = o.y + offset.y;
@@ -709,6 +712,7 @@ export function Canvas({
       window.removeEventListener('pointercancel', finish);
       window.removeEventListener('keydown', cancel, true);
       setDraft(null);
+      setFrameRotation(undefined);
       setDelta(null);
       setAlignment(undefined);
     };
@@ -845,7 +849,7 @@ export function Canvas({
             ))}
             {slide.objects
               .filter((object) => !object.hidden)
-              .map((original, visibleIndex) => {
+              .flatMap((original, visibleIndex) => {
                 const active = selection.includes(original.id) && drawTool === 'select';
                 let o = draft?.id === original.id ? draft : original;
                 if (delta && active) o = { ...o, x: o.x + delta.x, y: o.y + delta.y };
@@ -863,7 +867,8 @@ export function Canvas({
                 if (rotationModel?.id === o.id && ringPose) o = { ...o, pose: ringPose };
                 const isCropping = !!cropObject && cropObject.id === o.id;
                 const line = isLine(o);
-                return (
+                const style = objectStyle(o);
+                return [
                   <div
                     key={o.id}
                     data-testid={`object-${o.kind}`}
@@ -877,7 +882,7 @@ export function Canvas({
                     tabIndex={active && o.id === selected ? 0 : -1}
                     aria-label={o.altText || o.name}
                     className={`slide-object ${active ? 'selected' : ''} ${o.locked ? 'locked' : ''}`}
-                    style={{ ...objectStyle(o), visibility: isCropping ? 'hidden' : undefined }}
+                    style={{ ...style, visibility: isCropping ? 'hidden' : undefined }}
                     onContextMenu={(event) => {
                       if (
                         event.button !== 2 &&
@@ -993,39 +998,53 @@ export function Canvas({
                         }
                       />
                     )}
-                    {active && editable(o) && rotationId !== o.id && !line && (
-                      <div
-                        className="selection-outline"
-                        style={{ borderWidth: 1.4 / scale, borderRadius: 'inherit' }}
-                      />
-                    )}
-                    {active &&
-                      editable(o) &&
-                      selection.length === 1 &&
-                      line &&
-                      !o.connector &&
-                      linePoints(o).map((point, i) => (
-                        <button
-                          type="button"
-                          key={i}
-                          aria-label={i ? 'Move line end' : 'Move line start'}
-                          className="resize-handle line-endpoint"
-                          style={{
-                            left: point.x,
-                            top: point.y,
-                            width: 11 / scale,
-                            height: 11 / scale,
-                            borderWidth: 1.5 / scale,
-                          }}
-                          onPointerDown={(e) => drag(e, o, i ? 'line-end' : 'line-start')}
+                  </div>,
+                  active && editable(o) && rotationId !== o.id && !isCropping && !dimmed?.has(o.id) ? (
+                    <div
+                      key={`controls-${o.id}`}
+                      className="selection-controls"
+                      tabIndex={-1}
+                      style={
+                        {
+                          left: style.left,
+                          top: style.top,
+                          width: style.width,
+                          height: style.height,
+                          transform: style.transform,
+                          borderRadius: style.borderRadius,
+                          '--resize-grip': `${8 / scale}px`,
+                          '--resize-hit': `${14 / scale}px`,
+                          '--resize-border': `${1 / scale}px`,
+                        } as CSSProperties
+                      }
+                      onContextMenu={(event) => onMenu(event, o.id)}
+                    >
+                      {!line && (
+                        <div
+                          className="selection-outline"
+                          style={{ borderWidth: 1.4 / scale, borderRadius: 'inherit' }}
                         />
-                      ))}
-                    {active &&
-                      editable(o) &&
-                      selection.length === 1 &&
-                      !rotationModel &&
-                      editing !== o.id &&
-                      !line && (
+                      )}
+                      {selection.length === 1 &&
+                        line &&
+                        !o.connector &&
+                        linePoints(o).map((point, i) => (
+                          <button
+                            type="button"
+                            key={i}
+                            aria-label={i ? 'Move line end' : 'Move line start'}
+                            className="resize-handle line-endpoint"
+                            style={{
+                              left: point.x,
+                              top: point.y,
+                              width: 11 / scale,
+                              height: 11 / scale,
+                              borderWidth: 1.5 / scale,
+                            }}
+                            onPointerDown={(e) => drag(e, o, i ? 'line-end' : 'line-start')}
+                          />
+                        ))}
+                      {selection.length === 1 && !rotationModel && editing !== o.id && !line && (
                         <>
                           <div
                             className="object-tag"
@@ -1058,8 +1077,7 @@ export function Canvas({
                                 type="button"
                                 aria-label={`Resize ${handle}`}
                                 key={handle}
-                                className={`resize-handle ${handle}`}
-                                style={{ width: 8 / scale, height: 8 / scale, borderWidth: 1 / scale }}
+                                className={`resize-handle frame-resize-handle ${handle}`}
                                 onPointerDown={(e) => drag(e, o, handle)}
                               />
                             ))}
@@ -1097,10 +1115,16 @@ export function Canvas({
                           >
                             <RotateCw size={12} />
                           </button>
+                          {frameRotation?.id === o.id && (
+                            <output className="frame-rotation-angle" aria-live="off">
+                              {Math.round(((frameRotation.degrees % 360) + 360) % 360)}°
+                            </output>
+                          )}
                         </>
                       )}
-                  </div>
-                );
+                    </div>
+                  ) : null,
+                ];
               })}
             {showGrid && (
               <div

@@ -9,7 +9,7 @@ test('imports a deck, inserts a GLB, previews and exports native Morph, and reco
 }) => {
   const uncaught: string[] = [];
   page.on('pageerror', (e) => uncaught.push(e.message));
-  await page.goto('/');
+  await page.goto('/editor');
   await expect(page.getByTestId('slide-canvas')).toBeVisible();
   await page.getByRole('tab', { name: 'File', exact: true }).click();
   await page.getByRole('button', { name: 'New blank presentation' }).click();
@@ -89,7 +89,7 @@ test('reports invalid file and unavailable WebGL without losing the deck', async
       return type === 'webgl2' ? null : Reflect.apply(getContext, this, [type, ...args]);
     } as typeof getContext;
   });
-  await page.goto('/');
+  await page.goto('/editor');
   await expect(page.getByTestId('slide-canvas')).toBeVisible();
   await page
     .getByLabel('Import PPTX file')
@@ -104,7 +104,7 @@ test('reports invalid file and unavailable WebGL without losing the deck', async
 });
 
 test('model-axis rings snap, cancel, and commit an undoable native pose', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/editor');
   const tab = (name: string) => page.getByRole('tab', { name, exact: true });
   await expect(page.getByTestId('slide-canvas')).toBeVisible();
   await tab('File').click();
@@ -143,7 +143,7 @@ test('model-axis rings snap, cancel, and commit an undoable native pose', async 
   await page.mouse.wheel(0, -120);
   await expect(zoom.getByRole('button', { name: 'Reset 3D view zoom (120%)', exact: true })).toBeVisible();
   expect(await model.boundingBox()).toEqual(frame);
-  await expect(page.getByTestId('object-model').locator('.selection-outline')).toHaveCount(0);
+  await expect(page.getByTestId('slide-canvas').locator('.selection-outline')).toHaveCount(0);
   await zoom.getByRole('button', { name: 'Reset 3D view zoom (120%)', exact: true }).click();
 
   const startRing = async () => {
@@ -205,7 +205,7 @@ test('model-axis rings snap, cancel, and commit an undoable native pose', async 
 test('carries model zoom through Morph, previews and PPTX while keeping the editing hitbox', async ({
   page,
 }) => {
-  await page.goto('/');
+  await page.goto('/editor');
   const canvas = page.getByTestId('slide-canvas');
   const model = canvas.getByTestId('object-model');
   const live = model.locator('.model-view');

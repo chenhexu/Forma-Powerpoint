@@ -648,7 +648,7 @@ svg {
 .slide-canvas [data-smaller-model] {
   pointer-events: none;
 }
-.slide-canvas:not(.draw-eraser) [data-smaller-model] > :is(.model-view, .resize-handle, .rotate-handle) {
+.slide-canvas:not(.draw-eraser) [data-smaller-model] > .model-view {
   pointer-events: auto;
 }
 .slide-canvas [data-smaller-model] > .model-view {
@@ -669,6 +669,14 @@ svg {
   color: #554972;
   background: #eee8ff;
 }
+.selection-controls {
+  position: absolute;
+  z-index: 4;
+  pointer-events: none;
+}
+.selection-controls > button {
+  pointer-events: auto;
+}
 .selection-outline {
   position: absolute;
   inset: 0;
@@ -684,9 +692,30 @@ svg {
   z-index: 1;
   touch-action: none;
 }
-.resize-handle:is(.n, .s) {
+.frame-resize-handle {
+  width: var(--resize-hit);
+  height: var(--resize-hit);
+  background: transparent;
+  border: 0;
+}
+.frame-resize-handle::after {
+  position: absolute;
+  content: '';
   left: 50%;
-  transform: translateX(-50%);
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: var(--resize-grip);
+  height: var(--resize-grip);
+  background: white;
+  border: var(--resize-border) solid var(--accent);
+  pointer-events: none;
+}
+.frame-resize-handle:hover::after {
+  background: var(--accent-light);
+}
+.frame-resize-handle:is(.n, .s) {
+  left: 50%;
+  width: 100%;
   cursor: ns-resize;
 }
 .resize-handle.n {
@@ -697,8 +726,9 @@ svg {
   bottom: 0;
   transform: translate(-50%, 50%);
 }
-.resize-handle:is(.w, .e) {
+.frame-resize-handle:is(.w, .e) {
   top: 50%;
+  height: 100%;
   cursor: ew-resize;
 }
 .resize-handle.w {
@@ -714,8 +744,11 @@ svg {
   cursor: crosshair;
   transform: translate(-50%, -50%);
 }
-.shape-adjustment {
+.frame-resize-handle:is(.nw, .ne, .sw, .se) {
   z-index: 2;
+}
+.shape-adjustment {
+  z-index: 3;
   background: #ffd365;
   border-color: #946100;
   border-radius: 1px;
@@ -727,9 +760,6 @@ svg {
 }
 .slide-canvas.draw-select [data-vector-hit] {
   pointer-events: none;
-}
-.slide-canvas.draw-select [data-vector-hit] > :is(.resize-handle, .rotate-handle, .shape-adjustment) {
-  pointer-events: auto;
 }
 .slide-canvas.draw-select [data-vector-hit] > .polygon-shape polygon {
   pointer-events: visiblePainted;
@@ -780,6 +810,24 @@ svg {
   border: 1px solid var(--accent);
   padding: 0;
   cursor: grab;
+}
+.rotate-handle:active {
+  cursor: grabbing;
+}
+.frame-rotation-angle {
+  position: absolute;
+  z-index: 3;
+  top: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 3px 7px;
+  border-radius: 5px;
+  background: #2d2542;
+  color: white;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+  pointer-events: none;
 }
 .object-tag {
   position: absolute;
@@ -923,9 +971,12 @@ svg {
   border-color: var(--border);
 }
 .sidebar-tab [role='tab'] {
+  display: flex;
+  align-items: center;
   padding: 6px 3px;
   font-weight: 600;
   font-size: 12px;
+  line-height: 1;
   white-space: nowrap;
 }
 .sidebar-close-tab,
@@ -938,9 +989,11 @@ svg {
   border-radius: 5px;
 }
 .sidebar-close-tab {
-  width: 19px;
-  height: 19px;
+  width: 24px;
+  height: 24px;
   margin-left: 2px;
+  padding: 0;
+  align-self: center;
 }
 .sidebar-close-tab:hover:not(:disabled),
 .sidebar-toggle:hover:not(:disabled) {

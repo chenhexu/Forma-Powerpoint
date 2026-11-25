@@ -7,7 +7,7 @@ const fixture = process.env.FORMA_OFFICE_FIXTURE;
 
 test('preserves an Office-authored 3D model while adding a new native Morph pair', async ({ page }) => {
   test.skip(!fixture, 'Set FORMA_OFFICE_FIXTURE to a PowerPoint-authored deck containing a native 3D model.');
-  await page.goto('/');
+  await page.goto('/editor');
   await expect(page.getByTestId('slide-canvas')).toBeVisible();
   await page.getByLabel('Import PPTX file').setInputFiles(fixture!);
   await expect(page.getByRole('status')).toContainText('Presentation imported');

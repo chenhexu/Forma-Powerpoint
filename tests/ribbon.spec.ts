@@ -23,7 +23,7 @@ async function chooseMenu(page: Page, label: string, choice: string) {
 test('grows highlighted text without losing the selection and exports separate font sizes', async ({
   page,
 }, testInfo) => {
-  await page.goto('/');
+  await page.goto('/editor');
   const panel = page.locator('.ribbon').getByRole('tabpanel');
   await page.getByRole('tab', { name: 'File', exact: true }).click();
   await panel.getByRole('button', { name: 'New blank presentation' }).click();
@@ -59,7 +59,7 @@ test('grows highlighted text without losing the selection and exports separate f
 });
 
 test('snaps mixed objects to each other and keeps off-slide objects for Morph', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/editor');
   const panel = page.locator('.ribbon').getByRole('tabpanel');
   const canvas = page.getByTestId('slide-canvas');
   await page.getByRole('tab', { name: 'File', exact: true }).click();
@@ -121,7 +121,7 @@ test('snaps mixed objects to each other and keeps off-slide objects for Morph', 
 });
 
 test('downloads the source picture and expands conversions by mouse or keyboard', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/editor');
   const canvas = page.getByTestId('slide-canvas');
   await expect(canvas).toBeVisible();
   const svg = Buffer.from(
@@ -176,7 +176,7 @@ test('downloads the source picture and expands conversions by mouse or keyboard'
 });
 
 test('double-click crops a picture and keeps the full image in the PPTX', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/editor');
   const panel = page.locator('.ribbon').getByRole('tabpanel');
   const canvas = page.getByTestId('slide-canvas');
   await page.getByRole('tab', { name: 'File', exact: true }).click();
@@ -255,7 +255,7 @@ test('double-click crops a picture and keeps the full image in the PPTX', async 
 });
 
 test('Home layout, formatting and shape controls survive a PPTX round trip', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/editor');
   const panel = page.locator('.ribbon').getByRole('tabpanel');
   const canvas = page.getByTestId('slide-canvas');
   await page.getByRole('tab', { name: 'File', exact: true }).click();
@@ -349,7 +349,7 @@ test('Home layout, formatting and shape controls survive a PPTX round trip', asy
 test('ribbon commands and context menus round-trip slide, text, layout and drawing edits', async ({
   page,
 }, testInfo) => {
-  await page.goto('/');
+  await page.goto('/editor');
   const canvas = page.getByTestId('slide-canvas');
   await expect(canvas).toBeVisible();
   const tab = (name: string) => page.getByRole('tab', { name, exact: true });

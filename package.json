@@ -12,6 +12,7 @@
     "start": "node server/start.mjs"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.119.2",
     "idb-keyval": "^6.2.1",
     "jszip": "^3.10.1",
     "lucide-react": "^0.468.0",

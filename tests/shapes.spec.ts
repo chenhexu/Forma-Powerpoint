@@ -5,7 +5,7 @@ import { createRequire } from 'node:module';
 const JSZip: typeof import('jszip') = createRequire(import.meta.url)('jszip');
 
 async function blank(page: Page) {
-  await page.goto('/');
+  await page.goto('/editor');
   await page.getByRole('tab', { name: 'File', exact: true }).click();
   await page.getByRole('button', { name: 'New blank presentation' }).click();
   await expect(page.getByLabel('Presentation name')).toHaveValue('Untitled presentation');
@@ -13,7 +13,11 @@ async function blank(page: Page) {
 }
 
 async function insertShape(page: Page, label: string) {
-  await page.locator('.ribbon').getByRole('tabpanel').getByRole('button', { name: 'Insert shape', exact: true }).click();
+  await page
+    .locator('.ribbon')
+    .getByRole('tabpanel')
+    .getByRole('button', { name: 'Insert shape', exact: true })
+    .click();
   await page
     .getByRole('menu', { name: 'Insert shape', exact: true })
     .getByRole('menuitem', { name: label, exact: true })
@@ -53,10 +57,10 @@ test('selects a line by its stroke, edits both slopes and round-trips a native l
   const canvas = page.getByTestId('slide-canvas');
   const line = canvas.getByTestId('object-shape');
   const frame = (await line.boundingBox())!;
-  const from = line.getByRole('button', { name: 'Move line start', exact: true });
-  const to = line.getByRole('button', { name: 'Move line end', exact: true });
+  const from = canvas.getByRole('button', { name: 'Move line start', exact: true });
+  const to = canvas.getByRole('button', { name: 'Move line end', exact: true });
   await expect(from).toBeVisible();
-  await expect(line.locator('.selection-outline')).toHaveCount(0);
+  await expect(canvas.locator('.selection-outline')).toHaveCount(0);
   await page.mouse.click(frame.x + frame.width * 0.8, frame.y + frame.height * 0.14);
   await expect(from).toHaveCount(0);
 
@@ -93,7 +97,7 @@ test('resizes one side at a time, preserves the center and exports rounded corne
   const canvas = page.getByTestId('slide-canvas');
   const shape = canvas.getByTestId('object-shape');
   const original = (await shape.boundingBox())!;
-  const right = shape.getByRole('button', { name: 'Resize e', exact: true });
+  const right = canvas.getByRole('button', { name: 'Resize e', exact: true });
   let handle = await midpoint(right);
   await drag(page, handle, { x: handle.x + 35, y: handle.y + 21 });
   const stretched = (await shape.boundingBox())!;
@@ -101,7 +105,7 @@ test('resizes one side at a time, preserves the center and exports rounded corne
   expect(stretched.height).toBeCloseTo(original.height, 1);
   expect(stretched.width - original.width).toBeCloseTo(35, 0);
 
-  const bottom = shape.getByRole('button', { name: 'Resize s', exact: true });
+  const bottom = canvas.getByRole('button', { name: 'Resize s', exact: true });
   handle = await midpoint(bottom);
   await drag(page, handle, { x: handle.x + 23, y: handle.y - 20 }, ['Alt']);
   const centered = (await shape.boundingBox())!;
@@ -111,7 +115,7 @@ test('resizes one side at a time, preserves the center and exports rounded corne
   const initialRadius = await shape.evaluate((element) =>
     parseFloat(getComputedStyle(element).borderTopLeftRadius),
   );
-  handle = await midpoint(shape.getByRole('button', { name: 'Adjust corner radius', exact: true }));
+  handle = await midpoint(canvas.getByRole('button', { name: 'Adjust corner radius', exact: true }));
   await drag(page, handle, { x: handle.x + 30, y: handle.y });
   const radius = await shape.evaluate((element) => parseFloat(getComputedStyle(element).borderTopLeftRadius));
   expect(radius).toBeGreaterThan(initialRadius + 20);
@@ -123,6 +127,34 @@ test('resizes one side at a time, preserves the center and exports rounded corne
     parseFloat(getComputedStyle(element).borderTopLeftRadius),
   );
   expect(importedRadius).toBeCloseTo(radius, 1);
+});
+
+test('gives the selected frame priority where object borders overlap', async ({ page }) => {
+  await blank(page);
+  await insertShape(page, 'Rounded rectangle');
+  await insertShape(page, 'Rectangle');
+  await page.getByRole('button', { name: 'Selection pane', exact: true }).click();
+  await page
+    .locator('.layer-section')
+    .getByRole('button', { name: 'Rounded rectangle', exact: true })
+    .click();
+
+  const canvas = page.getByTestId('slide-canvas');
+  const back = canvas.getByRole('group', { name: 'Rounded rectangle', exact: true });
+  const front = canvas.getByRole('group', { name: 'Rectangle', exact: true });
+  const frame = (await back.boundingBox())!;
+  const corner = { x: frame.x + frame.width - 5, y: frame.y + 5 };
+  const sharedEdge = { x: frame.x + frame.width - 2, y: frame.y + frame.height / 4 };
+  const center = { x: frame.x + frame.width / 2, y: frame.y + frame.height / 2 };
+  const hits = await page.evaluate(
+    (points) => points.map(({ x, y }) => document.elementFromPoint(x, y)?.getAttribute('aria-label')),
+    [corner, sharedEdge, center],
+  );
+  expect(hits).toEqual(['Resize ne', 'Resize e', 'Rectangle']);
+
+  await drag(page, sharedEdge, { x: sharedEdge.x + 35, y: sharedEdge.y });
+  expect((await back.boundingBox())!.width).toBeCloseTo(frame.width + 35, 0);
+  expect((await front.boundingBox())!.width).toBeCloseTo(frame.width, 0);
 });
 
 test('keeps a picture centered and proportional with Ctrl and Shift', async ({ page }) => {
@@ -139,11 +171,12 @@ test('keeps a picture centered and proportional with Ctrl and Shift', async ({ p
   await page
     .getByLabel('Insert image file')
     .setInputFiles({ name: 'Swatch.png', mimeType: 'image/png', buffer: Buffer.from(png, 'base64') });
-  const picture = page.getByTestId('slide-canvas').getByTestId('object-image');
+  const canvas = page.getByTestId('slide-canvas');
+  const picture = canvas.getByTestId('object-image');
   await expect(picture).toBeVisible();
   const center = await midpoint(picture);
   const initial = (await picture.boundingBox())!;
-  const corner = await midpoint(picture.getByRole('button', { name: 'Resize se', exact: true }));
+  const corner = await midpoint(canvas.getByRole('button', { name: 'Resize se', exact: true }));
   await drag(page, corner, { x: corner.x + 45, y: corner.y + 35 }, ['Control', 'Shift']);
   const resized = (await picture.boundingBox())!;
   expect(resized.width).toBeGreaterThan(initial.width + 55);

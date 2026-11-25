@@ -28,7 +28,17 @@ export const pictureExtension = (mime: string) => extensions[mime] ?? 'img';
 export const pictureType = (file: File) =>
   contentTypes[file.name.split('.').at(-1)?.toLowerCase() ?? ''] ||
   (file.type.startsWith('image/') ? file.type : '');
-export type PictureDownload = 'image/png' | 'image/jpeg' | 'image/webp';
+export const pictureFormats = [
+  ['PNG', 'image/png'],
+  ['JPEG', 'image/jpeg'],
+  ['WebP', 'image/webp'],
+  ['BMP', 'image/bmp'],
+  ['ICO', 'image/x-icon'],
+] as const;
+export type PictureDownload = (typeof pictureFormats)[number][1];
+export const pictureFormatName = (mime: string) =>
+  pictureFormats.find(([, type]) => type === mime)?.[0] ??
+  (extensions[mime] ?? mime.replace(/^image\//, '')).toUpperCase();
 
 async function withPicture<T>(
   blob: Blob,
@@ -60,19 +70,62 @@ async function encodePicture(
   mime: PictureDownload,
 ) {
   const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
+  const iconScale = mime === 'image/x-icon' ? Math.min(1, 256 / Math.max(width, height)) : 1;
+  canvas.width = Math.max(1, Math.round(width * iconScale));
+  canvas.height = Math.max(1, Math.round(height * iconScale));
   const context = canvas.getContext('2d');
   if (!context) throw new Error('This picture could not be converted.');
-  if (mime === 'image/jpeg') {
+  if (mime === 'image/jpeg' || mime === 'image/bmp') {
     context.fillStyle = '#fff';
-    context.fillRect(0, 0, width, height);
+    context.fillRect(0, 0, canvas.width, canvas.height);
   }
-  context.drawImage(source, 0, 0);
-  const encoded = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, mime, 0.94));
-  if (!encoded || encoded.type !== mime)
-    throw new Error(`This browser could not save the picture as ${pictureExtension(mime).toUpperCase()}.`);
+  context.drawImage(source, 0, 0, canvas.width, canvas.height);
+  if (mime === 'image/bmp') return encodeBitmap(context.getImageData(0, 0, width, height));
+  const canvasMime = mime === 'image/x-icon' ? 'image/png' : mime;
+  const encoded = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, canvasMime, 0.94));
+  if (!encoded || encoded.type !== canvasMime)
+    throw new Error(`This browser could not save the picture as ${pictureFormatName(mime)}.`);
+  if (mime === 'image/x-icon') return encodeIcon(encoded, canvas.width, canvas.height);
   return encoded;
+}
+
+function encodeBitmap({ width, height, data }: ImageData) {
+  const offset = 54;
+  const stride = Math.ceil((width * 3) / 4) * 4;
+  const bytes = new Uint8Array(offset + stride * height);
+  const header = new DataView(bytes.buffer);
+  bytes.set([0x42, 0x4d]);
+  header.setUint32(2, bytes.length, true);
+  header.setUint32(10, offset, true);
+  header.setUint32(14, 40, true);
+  header.setInt32(18, width, true);
+  header.setInt32(22, height, true);
+  header.setUint16(26, 1, true);
+  header.setUint16(28, 24, true);
+  header.setUint32(34, stride * height, true);
+  for (let y = 0; y < height; y++) {
+    let source = (height - 1 - y) * width * 4;
+    let target = offset + y * stride;
+    for (let x = 0; x < width; x++, source += 4, target += 3) {
+      bytes[target] = data[source + 2];
+      bytes[target + 1] = data[source + 1];
+      bytes[target + 2] = data[source];
+    }
+  }
+  return new Blob([bytes], { type: 'image/bmp' });
+}
+
+function encodeIcon(png: Blob, width: number, height: number) {
+  const header = new DataView(new ArrayBuffer(22));
+  header.setUint16(2, 1, true);
+  header.setUint16(4, 1, true);
+  header.setUint8(6, width % 256);
+  header.setUint8(7, height % 256);
+  header.setUint16(10, 1, true);
+  header.setUint16(12, 32, true);
+  header.setUint32(14, png.size, true);
+  header.setUint32(18, header.byteLength, true);
+  return new Blob([header.buffer, png], { type: 'image/x-icon' });
 }
 
 export async function preparePicture(file: File) {

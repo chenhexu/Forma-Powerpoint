@@ -15,7 +15,6 @@ import {
   Square,
   Timer,
   Trash2,
-  X,
   Zap,
 } from 'lucide-react';
 import {
@@ -121,7 +120,6 @@ export function AnimationPane({
   options,
   previewing,
   preview,
-  close,
 }: {
   slide?: Slide;
   selected?: string;
@@ -133,7 +131,6 @@ export function AnimationPane({
   options: (animation: SlideAnimation, tab: AnimationSettingsTab) => void;
   previewing: boolean;
   preview: (from?: string | AnimationPosition) => void;
-  close: () => void;
 }) {
   const effects = slide?.animations ?? noEffects;
   const selectedEffect = effects.find(({ id }) => id === selected);
@@ -596,18 +593,6 @@ export function AnimationPane({
 
   return (
     <section aria-label="Animation Pane" className="animation-pane">
-      <header className="transition-gallery-header">
-        <h2>Animation Pane</h2>
-        <button
-          type="button"
-          className="tool"
-          disabled={previewing}
-          aria-label="Close animation pane"
-          onClick={close}
-        >
-          <X size={16} />
-        </button>
-      </header>
       <div className="animation-pane-tools">
         <button className="button" type="button" disabled={!effects.length} onClick={() => preview()}>
           {previewing ? <Square size={13} /> : <Play size={13} />}{' '}

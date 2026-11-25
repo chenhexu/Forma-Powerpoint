@@ -1,6 +1,21 @@
-import { uid, type Asset, type BackgroundPaint, type Deck, type Slide, type SlideObject } from './types';
+import { combinedBounds, objectBounds } from './layout';
+import {
+  uid,
+  type Asset,
+  type BackgroundPaint,
+  type Deck,
+  type Point,
+  type Slide,
+  type SlideObject,
+} from './types';
 
-export function pasteObjects(deck: Deck, destination: number, items: SlideObject[], sourceId?: string) {
+export function pasteObjects(
+  deck: Deck,
+  destination: number,
+  items: SlideObject[],
+  sourceId?: string,
+  position?: Point,
+) {
   const next = structuredClone(deck);
   const target = next.slides[destination];
   const source = next.slides.find((slide) => slide.id === sourceId);
@@ -46,6 +61,13 @@ export function pasteObjects(deck: Deck, destination: number, items: SlideObject
     ];
     return copy;
   });
+  if (position && copies.length) {
+    const bounds = combinedBounds(copies.map(objectBounds));
+    for (const copy of copies) {
+      copy.x += position.x - bounds.x;
+      copy.y += position.y - bounds.y;
+    }
+  }
   target.objects.push(...copies);
   target.dirty = true;
   return { deck: next, copies };

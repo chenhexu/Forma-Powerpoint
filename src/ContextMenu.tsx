@@ -1,5 +1,5 @@
-import { Check } from 'lucide-react';
-import { Fragment, useEffect, useLayoutEffect, useRef, type ReactNode } from 'react';
+import { Check, ChevronDown } from 'lucide-react';
+import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 
 export interface MenuItem {
   label: string;
@@ -8,6 +8,8 @@ export interface MenuItem {
   checked?: boolean;
   preview?: ReactNode;
   group?: string;
+  detail?: string;
+  submenu?: { label: string; items: Omit<MenuItem, 'submenu'>[] };
 }
 
 type MenuPosition = { x: number; y: number; anchor?: undefined } | { anchor: HTMLButtonElement };
@@ -27,6 +29,9 @@ export function ContextMenu(
   const x = 'x' in props ? props.x : 0;
   const y = 'y' in props ? props.y : 0;
   const menu = useRef<HTMLDivElement>(null);
+  const submenusId = useId();
+  const [expanded, setExpanded] = useState<{ label: string; pinned: boolean }>();
+  const focusSubmenu = useRef<HTMLDivElement>(null);
   const closeRef = useRef(close);
   closeRef.current = close;
 
@@ -63,9 +68,19 @@ export function ContextMenu(
       ? buttons.at(-1)
       : (buttons.find((button) => button.getAttribute('aria-checked') === 'true') ?? buttons[0]);
     initial?.focus();
+    const observer = new ResizeObserver(position);
+    if (!anchor) observer.observe(node);
     if (anchor) window.addEventListener('scroll', position, true);
-    return () => window.removeEventListener('scroll', position, true);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('scroll', position, true);
+    };
   }, [anchor, focusLast, x, y]);
+
+  useLayoutEffect(() => {
+    focusSubmenu.current?.querySelector<HTMLButtonElement>('.menu-submenu > button:not(:disabled)')?.focus();
+    focusSubmenu.current = null;
+  }, [expanded]);
 
   useEffect(() => {
     const outside = (event: PointerEvent) => {
@@ -80,6 +95,33 @@ export function ContextMenu(
       window.removeEventListener('resize', resize);
     };
   }, [anchor]);
+
+  function actionButton({ label, action, disabled, checked, preview, detail }: MenuItem, nested = false) {
+    return (
+      <button
+        type="button"
+        role={checked === undefined ? 'menuitem' : 'menuitemradio'}
+        aria-checked={checked}
+        disabled={disabled}
+        tabIndex={anchor ? -1 : undefined}
+        onClick={() => {
+          close(true);
+          action();
+        }}
+      >
+        {!nested && hasPreviews && (
+          <span className="menu-preview" aria-hidden="true">
+            {preview}
+          </span>
+        )}
+        <span className={detail ? 'menu-item-with-detail' : undefined}>
+          {label}
+          {detail && <span className="menu-item-detail">{detail}</span>}
+        </span>
+        {checked && <Check size={15} aria-hidden="true" className="menu-check" />}
+      </button>
+    );
+  }
 
   return (
     <div
@@ -125,34 +167,68 @@ export function ContextMenu(
       }}
     >
       {leading}
-      {items.map(({ label, action, disabled, checked, preview, group }, index) => (
-        <Fragment key={label}>
-          {group && group !== items[index - 1]?.group && (
-            <div className="menu-group-label" aria-hidden="true">
-              {group}
-            </div>
-          )}
-          <button
-            type="button"
-            role={checked === undefined ? 'menuitem' : 'menuitemradio'}
-            aria-checked={checked}
-            disabled={disabled}
-            tabIndex={anchor ? -1 : undefined}
-            onClick={() => {
-              close(true);
-              action();
-            }}
-          >
-            {hasPreviews && (
-              <span className="menu-preview" aria-hidden="true">
-                {preview}
-              </span>
+      {items.map((item, index) => {
+        const { label, group, submenu } = item;
+        const open = expanded?.label === label;
+        const submenuId = `${submenusId}-${index}`;
+        return (
+          <Fragment key={label}>
+            {group && group !== items[index - 1]?.group && (
+              <div className="menu-group-label" aria-hidden="true">
+                {group}
+              </div>
             )}
-            <span>{label}</span>
-            {checked && <Check size={15} aria-hidden="true" className="menu-check" />}
-          </button>
-        </Fragment>
-      ))}
+            {submenu ? (
+              <div
+                className="menu-split-group"
+                onKeyDown={(event) => {
+                  if (event.key === 'ArrowRight') {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    focusSubmenu.current = event.currentTarget;
+                    setExpanded({ label, pinned: true });
+                  } else if (open && (event.key === 'ArrowLeft' || event.key === 'Escape')) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setExpanded(undefined);
+                    event.currentTarget.querySelector<HTMLButtonElement>('.menu-submenu-toggle')?.focus();
+                  }
+                }}
+              >
+                <div className="menu-split-action">
+                  {actionButton(item)}
+                  <button
+                    className="menu-submenu-toggle"
+                    type="button"
+                    role="menuitem"
+                    aria-label={submenu.label}
+                    aria-haspopup="menu"
+                    aria-expanded={open}
+                    aria-controls={open ? submenuId : undefined}
+                    title={submenu.label}
+                    disabled={item.disabled}
+                    onPointerEnter={(event) => {
+                      if (event.pointerType === 'mouse' && !open) setExpanded({ label, pinned: false });
+                    }}
+                    onClick={() => setExpanded(open && expanded.pinned ? undefined : { label, pinned: true })}
+                  >
+                    <ChevronDown size={14} aria-hidden="true" />
+                  </button>
+                </div>
+                {open && (
+                  <div className="menu-submenu" role="menu" id={submenuId} aria-label={submenu.label}>
+                    {submenu.items.map((child) => (
+                      <Fragment key={child.label}>{actionButton(child, true)}</Fragment>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              actionButton(item)
+            )}
+          </Fragment>
+        );
+      })}
     </div>
   );
 }

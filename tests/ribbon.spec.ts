@@ -4,7 +4,11 @@ import { createRequire } from 'node:module';
 const JSZip: typeof import('jszip') = createRequire(import.meta.url)('jszip');
 
 async function chooseMenu(page: Page, label: string, choice: string) {
-  await page.getByRole('tabpanel').getByRole('button', { name: label, exact: true }).click();
+  await page
+    .locator('.ribbon')
+    .getByRole('tabpanel')
+    .getByRole('button', { name: label, exact: true })
+    .click();
   await page
     .getByRole('menu', { name: label, exact: true })
     .getByRole('menuitem', { name: choice, exact: true })
@@ -20,7 +24,7 @@ test('grows highlighted text without losing the selection and exports separate f
   page,
 }, testInfo) => {
   await page.goto('/');
-  const panel = page.getByRole('tabpanel');
+  const panel = page.locator('.ribbon').getByRole('tabpanel');
   await page.getByRole('tab', { name: 'File', exact: true }).click();
   await panel.getByRole('button', { name: 'New blank presentation' }).click();
   await expect(page.getByLabel('Presentation name')).toHaveValue('Untitled presentation');
@@ -56,7 +60,7 @@ test('grows highlighted text without losing the selection and exports separate f
 
 test('snaps mixed objects to each other and keeps off-slide objects for Morph', async ({ page }) => {
   await page.goto('/');
-  const panel = page.getByRole('tabpanel');
+  const panel = page.locator('.ribbon').getByRole('tabpanel');
   const canvas = page.getByTestId('slide-canvas');
   await page.getByRole('tab', { name: 'File', exact: true }).click();
   await panel.getByRole('button', { name: 'New blank presentation' }).click();
@@ -92,7 +96,10 @@ test('snaps mixed objects to each other and keeps off-slide objects for Morph', 
     );
   }
 
-  await page.getByRole('button', { name: 'Rectangle', exact: true }).click();
+  await panel.getByRole('button', { name: 'Selection pane', exact: true }).click();
+  const sidebar = page.getByRole('complementary', { name: 'Editing sidebar' });
+  await sidebar.getByRole('button', { name: 'Rectangle', exact: true }).click();
+  await sidebar.getByRole('tab', { name: 'Object', exact: true }).click();
   await expect(page.getByLabel('Object name')).toHaveValue('Rectangle');
   await setPosition('X', '-470');
   await expect(shape).toBeVisible();
@@ -113,9 +120,64 @@ test('snaps mixed objects to each other and keeps off-slide objects for Morph', 
   expect(originals.some((xml) => xml.includes('x="4572000"') && xml.includes('<p159:morph'))).toBe(true);
 });
 
+test('downloads the source picture and expands conversions by mouse or keyboard', async ({ page }) => {
+  await page.goto('/');
+  const canvas = page.getByTestId('slide-canvas');
+  await expect(canvas).toBeVisible();
+  const svg = Buffer.from(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="32"><rect width="40" height="32" fill="blue"/></svg>',
+  );
+  await page
+    .getByLabel('Insert image file')
+    .setInputFiles({ name: 'Sample.svg', mimeType: 'image/svg+xml', buffer: svg });
+  const picture = canvas.getByTestId('object-image');
+  const menu = page.getByRole('menu', { name: 'Edit actions' });
+  const convert = menu.getByRole('menuitem', { name: 'Convert picture', exact: true });
+  const original = menu.getByRole('menuitem', { name: 'Download Original SVG', exact: true });
+  const download = async (button: typeof original) => {
+    const pending = page.waitForEvent('download');
+    await button.click();
+    const file = await pending;
+    return { name: file.suggestedFilename(), bytes: await readFile(await file.path()) };
+  };
+
+  await picture.click({ button: 'right' });
+  await expect(convert).toHaveAttribute('aria-expanded', 'false');
+  expect(await download(original)).toEqual({ name: 'Sample.svg', bytes: svg });
+  await picture.click({ button: 'right' });
+  await convert.hover();
+  await expect(convert).toHaveAttribute('aria-expanded', 'true');
+  const bmp = await download(menu.getByRole('menuitem', { name: 'Convert and Download BMP' }));
+  expect(bmp.name).toBe('Sample.bmp');
+  expect(bmp.bytes.subarray(0, 2).toString()).toBe('BM');
+
+  await picture.click({ button: 'right' });
+  await convert.click();
+  await expect(convert).toHaveAttribute('aria-expanded', 'true');
+  await convert.click();
+  await expect(convert).toHaveAttribute('aria-expanded', 'false');
+  await original.press('ArrowRight');
+  await expect(menu.getByRole('menuitem', { name: 'Convert and Download PNG' })).toBeFocused();
+  const ico = await download(menu.getByRole('menuitem', { name: 'Convert and Download ICO' }));
+  expect(ico.name).toBe('Sample.ico');
+  expect(ico.bytes.subarray(0, 4)).toEqual(Buffer.from([0, 0, 1, 0]));
+  for (const { name, bytes } of [bmp, ico]) {
+    const dimensions = await page.evaluate(
+      async (source) => {
+        const image = new Image();
+        image.src = source;
+        await image.decode();
+        return [image.naturalWidth, image.naturalHeight];
+      },
+      `data:image/${name.endsWith('ico') ? 'x-icon' : 'bmp'};base64,${bytes.toString('base64')}`,
+    );
+    expect(dimensions).toEqual([40, 32]);
+  }
+});
+
 test('double-click crops a picture and keeps the full image in the PPTX', async ({ page }) => {
   await page.goto('/');
-  const panel = page.getByRole('tabpanel');
+  const panel = page.locator('.ribbon').getByRole('tabpanel');
   const canvas = page.getByTestId('slide-canvas');
   await page.getByRole('tab', { name: 'File', exact: true }).click();
   await panel.getByRole('button', { name: 'New blank presentation' }).click();
@@ -138,6 +200,7 @@ test('double-click crops a picture and keeps the full image in the PPTX', async 
     .getByLabel('Insert image file')
     .setInputFiles({ name: 'Colors.png', mimeType: 'image/png', buffer: png });
   const picture = canvas.getByTestId('object-image');
+  const pictureWidth = () => picture.evaluate((element) => parseFloat(element.style.width));
   await expect(picture).toBeVisible();
   const initial = (await picture.boundingBox())!;
   await picture.dblclick();
@@ -155,6 +218,7 @@ test('double-click crops a picture and keeps the full image in the PPTX', async 
   await page.keyboard.press('Enter');
   await expect(editor).toHaveCount(0);
   expect((await picture.boundingBox())!.width).toBeCloseTo(newWidth, 1);
+  const croppedWidth = await pictureWidth();
 
   await page.getByRole('button', { name: 'Undo (Ctrl/Cmd+Z)' }).click();
   expect((await picture.boundingBox())!.width).toBeCloseTo(initial.width, 1);
@@ -175,24 +239,24 @@ test('double-click crops a picture and keeps the full image in the PPTX', async 
 
   await page.getByLabel('Import PPTX file').setInputFiles(path);
   await expect(page.getByRole('status')).toContainText('Presentation imported');
-  expect((await picture.boundingBox())!.width).toBeCloseTo(newWidth, 1);
+  expect(await pictureWidth()).toBeCloseTo(croppedWidth, 1);
   await picture.dblclick();
   await editor.getByRole('button', { name: 'Reset crop' }).click();
   await page.keyboard.press('Escape');
   await expect(editor).toHaveCount(0);
-  expect((await picture.boundingBox())!.width).toBeCloseTo(newWidth, 1);
+  expect(await pictureWidth()).toBeCloseTo(croppedWidth, 1);
   await picture.dblclick();
   await editor.getByRole('button', { name: 'Reset crop' }).click();
   await canvas.click({ position: { x: 12, y: 12 } });
   await expect(editor).toHaveCount(0);
-  expect((await picture.boundingBox())!.width).toBeCloseTo(initial.width, 1);
+  expect(await pictureWidth()).toBeCloseTo(240, 1);
   const reset = await JSZip.loadAsync(await readFile(await exportDeck()));
   expect(await reset.file('ppt/slides/slide1.xml')!.async('string')).not.toContain('srcRect');
 });
 
 test('Home layout, formatting and shape controls survive a PPTX round trip', async ({ page }) => {
   await page.goto('/');
-  const panel = page.getByRole('tabpanel');
+  const panel = page.locator('.ribbon').getByRole('tabpanel');
   const canvas = page.getByTestId('slide-canvas');
   await page.getByRole('tab', { name: 'File', exact: true }).click();
   await panel.getByRole('button', { name: 'New blank presentation' }).click();
@@ -289,7 +353,7 @@ test('ribbon commands and context menus round-trip slide, text, layout and drawi
   const canvas = page.getByTestId('slide-canvas');
   await expect(canvas).toBeVisible();
   const tab = (name: string) => page.getByRole('tab', { name, exact: true });
-  const panel = page.getByRole('tabpanel');
+  const panel = page.locator('.ribbon').getByRole('tabpanel');
   await expect(page.getByRole('tablist', { name: 'Ribbon' }).getByRole('tab')).toHaveCount(12);
   await tab('Home').focus();
   await page.keyboard.press('ArrowRight');

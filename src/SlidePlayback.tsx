@@ -216,12 +216,38 @@ function combineEffects(
   return result;
 }
 
+function sameMorphObject(before: SlideObject, after: SlideObject) {
+  if (before.kind !== after.kind) return false;
+  if (before.id === after.id) return true;
+  if (before.name !== after.name) return false;
+  if (after.name.startsWith('!!')) return true;
+  // Default names like “Text box” and “Shape” are shared by unrelated objects.
+  switch (after.kind) {
+    case 'text':
+      return before.text === after.text;
+    case 'image':
+    case 'model':
+    case 'media':
+      return !!after.asset && before.asset === after.asset;
+    case 'shape':
+      return (
+        before.geometry === after.geometry &&
+        before.fill === after.fill &&
+        JSON.stringify([before.outline, before.stroke, before.customPaths]) ===
+          JSON.stringify([after.outline, after.stroke, after.customPaths])
+      );
+    default:
+      return false;
+  }
+}
+
 function SlidePlaybackObject({
   object,
   effects,
   assets,
   width,
   height,
+  opacity,
   playing,
   renderLink,
 }: {
@@ -230,6 +256,7 @@ function SlidePlaybackObject({
   assets: Record<string, Asset>;
   width: number;
   height: number;
+  opacity?: number;
   playing?: boolean;
   renderLink?: (object: SlideObject) => ReactNode;
 }) {
@@ -243,7 +270,12 @@ function SlidePlaybackObject({
     <div
       className="slide-object"
       data-playback-object={object.id}
-      style={{ ...style, ...motion.frame, transform }}
+      style={{
+        ...style,
+        ...motion.frame,
+        transform,
+        opacity: opacity === undefined ? motion.frame.opacity : opacity * Number(motion.frame.opacity ?? 1),
+      }}
     >
       {painted.kind === 'text' ? (
         <TextDisplay
@@ -304,22 +336,26 @@ export function SlidePlaybackFrame({
     transition && effect && effect !== 'morph' && effect !== 'preserve'
       ? transitionFrame(effect, option, t, width, height, backwards)
       : undefined;
-  const display = [...(current.masterObjects ?? []), ...current.objects]
-    .filter((o) => !o.hidden)
-    .map(modelDisplayFrame);
-  const former = previous
-    ? [...(previous.masterObjects ?? []), ...previous.objects].filter((o) => !o.hidden).map(modelDisplayFrame)
-    : [];
-  const morphKeys = new Set<SlideObject>();
-  const matches = new Map<SlideObject, SlideObject>();
-  if (morph)
-    for (const o of display) {
-      const before = former.find((p) => !morphKeys.has(p) && p.kind === o.kind && p.name === o.name);
-      if (before) {
-        matches.set(o, before);
-        morphKeys.add(before);
+  const { display, former, matches } = useMemo(() => {
+    const objects = (slide?: Slide) =>
+      slide
+        ? [...(slide.masterObjects ?? []), ...slide.objects].filter((o) => !o.hidden).map(modelDisplayFrame)
+        : [];
+    const display = objects(current);
+    const former = objects(previous);
+    const matched = new Set<SlideObject>();
+    const matches = new Map<SlideObject, SlideObject>();
+    if (morph)
+      for (const object of display) {
+        const before = former.find(
+          (candidate) => !matched.has(candidate) && sameMorphObject(candidate, object),
+        );
+        if (!before) continue;
+        matches.set(object, before);
+        matched.add(before);
       }
-    }
+    return { display, former: former.filter((object) => !matched.has(object)), matches };
+  }, [current, previous, morph]);
 
   function draw(o: SlideObject, old?: SlideObject) {
     const interpolate = (a: number, b: number) => a + (b - a) * t;
@@ -335,7 +371,7 @@ export function SlidePlaybackFrame({
             o.kind === 'model' ? interpolatedPose(old.pose ?? [0, 0, 0], o.pose ?? [0, 0, 0], t) : undefined,
         }
       : o;
-    const rendered = (
+    return (
       <SlidePlaybackObject
         key={o.id}
         object={object}
@@ -343,53 +379,53 @@ export function SlidePlaybackFrame({
         assets={assets}
         width={width}
         height={height}
+        opacity={morph && !old ? t : undefined}
         playing={playing && !transition}
         renderLink={transition ? undefined : renderLink}
       />
     );
-    return morph && !old ? (
-      <div className="presentation-layer" key={o.id} style={{ opacity: t, pointerEvents: 'none' }}>
-        {rendered}
-      </div>
-    ) : (
-      rendered
-    );
   }
 
-  const prior = (frame || morph) && former.filter((o) => !morphKeys.has(o));
   const opaque = effect === 'fade' && option !== 'black' ? slideBackground(current, assets) : '#14121d';
+  const currentBackground = slideBackground(current, assets);
+  const previousBackground = previous ? slideBackground(previous, assets) : opaque;
   return (
     <div
       className="playback-stage"
       style={{
         width,
         height,
-        background: frame && !frame.contentOnly ? opaque : slideBackground(current, assets),
+        background: frame && !frame.contentOnly ? opaque : currentBackground,
       }}
     >
-      {prior && (
+      {morph && previousBackground !== currentBackground && (
+        <div className="presentation-layer" style={{ background: previousBackground, opacity: 1 - t }} />
+      )}
+      {(frame || morph) && (
         <div
           className="presentation-layer"
           style={{
-            background: frame?.contentOnly
-              ? 'transparent'
-              : previous
-                ? slideBackground(previous, assets)
-                : opaque,
+            background: frame?.contentOnly || morph ? 'transparent' : previousBackground,
             pointerEvents: 'none',
-            ...(morph && { opacity: 1 - t }),
             ...frame?.outgoing,
           }}
         >
-          {prior.map((o) => (
-            <SlidePlaybackObject key={o.id} object={o} assets={assets} width={width} height={height} />
+          {former.map((o) => (
+            <SlidePlaybackObject
+              key={o.id}
+              object={o}
+              assets={assets}
+              width={width}
+              height={height}
+              opacity={morph ? 1 - t : undefined}
+            />
           ))}
         </div>
       )}
       <div
         className="presentation-layer"
         style={{
-          background: frame?.contentOnly || morph ? 'transparent' : slideBackground(current, assets),
+          background: frame?.contentOnly || morph ? 'transparent' : currentBackground,
           ...frame?.incoming,
         }}
       >

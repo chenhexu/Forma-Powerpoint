@@ -37,15 +37,15 @@ test('imports a deck, inserts a GLB, previews and exports native Morph, and reco
   await expect(page.getByLabel('Yaw')).toHaveValue('30');
 
   await page.getByRole('button', { name: 'Create Morph pair', exact: true }).click();
-  await expect(page.getByLabel('Transition', { exact: true })).toHaveText('Morph');
-  await page.getByRole('button', { name: '3D model', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Transition', exact: true })).toHaveText('Morph');
+  await page.getByTestId('slide-canvas').getByTestId('object-model').click();
   await page.getByRole('button', { name: 'Right', exact: true }).click();
   await expect(page.getByLabel('Yaw')).toHaveValue('90');
   await page.getByRole('button', { name: 'Center on slide' }).click();
   await expect(page.getByLabel('X', { exact: true })).toHaveValue('416');
   await page.getByRole('button', { name: 'Undo (Ctrl/Cmd+Z)' }).click();
   await page.getByRole('button', { name: 'Redo (Ctrl/Cmd+Shift+Z)' }).click();
-  await page.getByRole('button', { name: 'Transition', exact: true }).click();
+  await page.getByRole('tab', { name: 'Transition', exact: true }).click();
   await page.getByRole('button', { name: 'Preview from previous slide' }).click();
   const preview = page.getByTestId('editor-transition-preview');
   await expect(preview).toBeVisible();
@@ -70,7 +70,7 @@ test('imports a deck, inserts a GLB, previews and exports native Morph, and reco
   await page.reload();
   await expect(page.getByRole('status')).toContainText('Recovered');
   await page.getByRole('button', { name: 'Select slide 2' }).click();
-  await page.getByRole('button', { name: '3D model', exact: true }).click();
+  await page.getByTestId('slide-canvas').getByTestId('object-model').click();
   await expect(page.getByLabel('Yaw')).toHaveValue('90');
   await page.getByLabel('Import PPTX file').setInputFiles(file);
   await expect(page.getByRole('status')).toContainText('Presentation imported');
@@ -178,7 +178,7 @@ test('model-axis rings snap, cancel, and commit an undoable native pose', async 
   await page.getByRole('button', { name: 'Create Morph pair' }).click();
   await page.getByTestId('object-model').click();
   await tab('3D Model').click();
-  await page.getByRole('tabpanel').getByRole('button', { name: 'Rotate in 3D' }).click();
+  await page.locator('.ribbon').getByRole('tabpanel').getByRole('button', { name: 'Rotate in 3D' }).click();
   await page.getByRole('button', { name: 'Rotate around Z axis' }).focus();
   await page.keyboard.press('Shift+ArrowRight');
   await expect(roll).toHaveValue('75');
@@ -217,15 +217,15 @@ test('carries model zoom through Morph, previews and PPTX while keeping the edit
   await expect(thumbnail).toHaveAttribute('src', /^blob:/);
   const before = (await thumbnail.getAttribute('src'))!;
   const baseThumb = (await thumbnail.boundingBox())!;
-  const baseModel = (await model.boundingBox())!;
   const originalWidth = await model.evaluate((element) => Number.parseFloat(element.style.width));
 
   async function rotateModel() {
     await model.click();
     await tab('3D Model').click();
-    await page.getByRole('tabpanel').getByRole('button', { name: 'Rotate in 3D' }).click();
+    await page.locator('.ribbon').getByRole('tabpanel').getByRole('button', { name: 'Rotate in 3D' }).click();
   }
   await rotateModel();
+  const baseModel = (await model.boundingBox())!;
   const zoom = page.getByRole('group', { name: '3D view zoom' });
   const zoomIn = zoom.getByRole('button', { name: 'Zoom in 3D view' });
   await zoom.getByRole('button', { name: 'Zoom out 3D view' }).click();
@@ -284,7 +284,7 @@ test('carries model zoom through Morph, previews and PPTX while keeping the edit
   const duration = page.getByLabel('Transition seconds', { exact: true });
   await duration.fill('2');
   await duration.press('Enter');
-  await page.getByRole('tabpanel').getByRole('button', { name: 'Preview Transition', exact: true }).click();
+  await page.locator('.ribbon').getByRole('tabpanel').getByRole('button', { name: 'Preview Transition', exact: true }).click();
   const preview = page.getByTestId('editor-transition-preview');
   const previewWidth = preview.locator('.model-view').evaluate((el) => el.parentElement!.style.width);
   expect(parseFloat(await previewWidth) / originalWidth).toBeGreaterThanOrEqual(1.2);

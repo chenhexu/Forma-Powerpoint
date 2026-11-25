@@ -16,7 +16,7 @@ test('selects and styles ink with the lasso, erases part of a stroke, and export
   const canvas = page.getByTestId('slide-canvas');
   await expect(canvas).toBeVisible();
   await page.getByRole('tab', { name: 'Draw', exact: true }).click();
-  const panel = page.getByRole('tabpanel');
+  const panel = page.locator('.ribbon').getByRole('tabpanel');
   const stroke = canvas.locator('[data-ink="true"]');
   const { x, y, width, height } = (await canvas.boundingBox())!;
   const lineY = y + height * 0.55;

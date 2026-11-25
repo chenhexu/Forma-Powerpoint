@@ -349,16 +349,24 @@ interface CanvasProps {
   height: number;
   scale: number;
   pan: Point;
+  areaRef: RefObject<HTMLDivElement | null>;
+  panning: boolean;
+  onPanStart: (event: ReactPointerEvent<HTMLDivElement>) => void;
+  onPanMove: (event: ReactPointerEvent<HTMLDivElement>) => void;
+  onPanEnd: (event: ReactPointerEvent<HTMLDivElement>) => void;
+  onPastePoint: (point?: Point) => void;
   onCreateText: (point: Point) => void;
   onEditData: (id: string) => void;
   assets: Record<string, Asset>;
   selected: string | null;
   selection: string[];
-  onSelect: (id: string | null) => void;
+  onDeselect: () => void;
   onPick: (id: string, extend: boolean) => boolean | void;
+  onInspect: (id: string) => void;
+  delayInspection: boolean;
   onPatch: (id: string, patch: Partial<SlideObject>) => void;
   onMoveGroup: (ids: string[], delta: Point) => void;
-  onMenu: (event: ReactMouseEvent, objectId?: string) => void;
+  onMenu: (event: ReactMouseEvent, objectId?: string, position?: Point) => void;
   orbit: boolean;
   onModelZoom: (id: string, direction?: number) => void;
   drawTool: DrawTool;
@@ -389,13 +397,21 @@ export function Canvas({
   height,
   scale,
   pan,
+  areaRef,
+  panning,
+  onPanStart,
+  onPanMove,
+  onPanEnd,
+  onPastePoint,
   onCreateText,
   onEditData,
   assets,
   selected,
   selection,
-  onSelect,
+  onDeselect,
   onPick,
+  onInspect,
+  delayInspection,
   onPatch,
   onMoveGroup,
   onMenu,
@@ -433,6 +449,10 @@ export function Canvas({
   const [xray, setXray] = useState<{ key: 'Control' | 'Shift'; depth: number }>();
   const root = useRef<HTMLDivElement>(null);
   const stroke = useRef<{ pointer: number; points: Point[]; extend: boolean } | null>(null);
+  const inspection = useRef<number>(undefined);
+  const inspect = useRef(onInspect);
+  inspect.current = onInspect;
+  useEffect(() => () => window.clearTimeout(inspection.current), []);
 
   if (editRequest && editRequest.token !== lastEdit) {
     setLastEdit(editRequest.token);
@@ -513,11 +533,69 @@ export function Canvas({
     if (rotationId) onModelZoom(rotationId, direction);
   }
 
-  function localPoint(e: { clientX: number; clientY: number }, clip = false): Point {
+  function localPoint(e: { clientX: number; clientY: number }): Point {
     const rect = root.current!.getBoundingClientRect();
-    const x = (e.clientX - rect.left) / scale,
-      y = (e.clientY - rect.top) / scale;
-    return clip ? { x: Math.max(0, Math.min(width, x)), y: Math.max(0, Math.min(height, y)) } : { x, y };
+    return { x: (e.clientX - rect.left) / scale, y: (e.clientY - rect.top) / scale };
+  }
+
+  function isBlank(target: EventTarget) {
+    return (
+      target instanceof Element &&
+      target.matches('.canvas-area, .canvas-workspace, .canvas-shell, .canvas-surface, .slide-canvas')
+    );
+  }
+
+  function beginOnBlank(event: ReactPointerEvent<HTMLDivElement>) {
+    if (overlay || event.button !== 0 || !event.isPrimary || !isBlank(event.target)) return;
+    event.preventDefault();
+    root.current?.focus({ preventScroll: true });
+    setEditing(null);
+    if (drawTool === 'select') {
+      onDeselect();
+      return;
+    }
+    event.currentTarget.setPointerCapture(event.pointerId);
+    const points = [localPoint(event)];
+    stroke.current = { pointer: event.pointerId, points, extend: event.shiftKey };
+    setInkDraft(points);
+  }
+
+  function moveOnWorkspace(event: ReactPointerEvent<HTMLDivElement>) {
+    onPanMove(event);
+    const session = stroke.current;
+    if (!session || session.pointer !== event.pointerId) return;
+    const point = localPoint(event),
+      last = session.points.at(-1)!;
+    if (Math.hypot(point.x - last.x, point.y - last.y) < Math.max(1, 1.25 / scale)) return;
+    session.points.push(point);
+    setInkDraft([...session.points]);
+  }
+
+  function finishOnWorkspace(event: ReactPointerEvent<HTMLDivElement>) {
+    onPanEnd(event);
+    const session = stroke.current;
+    if (session?.pointer !== event.pointerId) return;
+    stroke.current = null;
+    setInkDraft([]);
+    if (event.type !== 'pointerup') return;
+    const tail = localPoint(event),
+      last = session.points.at(-1)!;
+    if (tail.x !== last.x || tail.y !== last.y) session.points.push(tail);
+    if (drawTool === 'lasso') onLasso(session.points, session.extend);
+    if (drawTool === 'eraser') onErase(session.points);
+    if (drawTool !== 'pen') return;
+    const [first] = session.points;
+    if (event.shiftKey && session.points.length > 1) {
+      const dx = tail.x - first.x,
+        dy = tail.y - first.y;
+      const angle = (Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) * Math.PI) / 4;
+      const length = Math.hypot(dx, dy);
+      onInk([first, { x: first.x + Math.cos(angle) * length, y: first.y + Math.sin(angle) * length }]);
+    } else {
+      onInk(
+        smoothInk(session.points.length === 1 ? [first, { x: first.x + 0.02, y: first.y }] : session.points),
+      );
+    }
   }
 
   function drag(e: ReactPointerEvent, o: SlideObject, mode: DragMode) {
@@ -680,7 +758,7 @@ export function Canvas({
       marks.push({ step: animationStep, animation });
       objectSteps.set(animation.target, marks);
     }
-  return (
+  const content = (
     <div
       className="canvas-workspace"
       style={{
@@ -739,18 +817,6 @@ export function Canvas({
               transform: `scale(${scale})`,
               background: slideBackground(slide, assets),
             }}
-            onContextMenuCapture={(event) => {
-              if (!xrayDepth || !event.ctrlKey) return;
-              event.preventDefault();
-              event.stopPropagation();
-            }}
-            onContextMenu={(e) => {
-              if (!(e.target as HTMLElement).closest('textarea, [contenteditable]')) onMenu(e);
-            }}
-            onDoubleClick={(event) => {
-              if (drawTool === 'select' && event.target === event.currentTarget)
-                onCreateText(localPoint(event, true));
-            }}
             onKeyDown={(e) => {
               if (
                 e.target !== e.currentTarget ||
@@ -765,69 +831,6 @@ export function Canvas({
                 clientY: rect.top + 20,
               });
               e.currentTarget.dispatchEvent(event);
-            }}
-            onPointerDown={(event) => {
-              if (event.button !== 0 || !event.isPrimary) return;
-              if (
-                editing &&
-                document.activeElement instanceof HTMLElement &&
-                document.activeElement.isContentEditable
-              )
-                document.activeElement.blur();
-              setEditing(null);
-              event.currentTarget.focus({ preventScroll: true });
-              if (drawTool === 'select') {
-                onSelect(null);
-                return;
-              }
-              event.preventDefault();
-              event.currentTarget.setPointerCapture(event.pointerId);
-              const points = [localPoint(event, true)];
-              stroke.current = { pointer: event.pointerId, points, extend: event.shiftKey };
-              setInkDraft(points);
-            }}
-            onPointerMove={(event) => {
-              const session = stroke.current;
-              if (!session || session.pointer !== event.pointerId) return;
-              const point = localPoint(event, true),
-                last = session.points.at(-1)!;
-              if (Math.hypot(point.x - last.x, point.y - last.y) < Math.max(1, 1.25 / scale)) return;
-              session.points.push(point);
-              setInkDraft([...session.points]);
-            }}
-            onPointerUp={(event) => {
-              const session = stroke.current;
-              if (session?.pointer !== event.pointerId) return;
-              stroke.current = null;
-              setInkDraft([]);
-              const tail = localPoint(event, true),
-                last = session.points.at(-1)!;
-              if (tail.x !== last.x || tail.y !== last.y) session.points.push(tail);
-              if (drawTool === 'lasso') onLasso(session.points, session.extend);
-              if (drawTool === 'eraser') onErase(session.points);
-              if (drawTool === 'pen') {
-                const [first] = session.points;
-                if (event.shiftKey && session.points.length > 1) {
-                  const dx = tail.x - first.x,
-                    dy = tail.y - first.y;
-                  const angle = (Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) * Math.PI) / 4;
-                  const length = Math.hypot(dx, dy);
-                  onInk([
-                    first,
-                    { x: first.x + Math.cos(angle) * length, y: first.y + Math.sin(angle) * length },
-                  ]);
-                } else
-                  onInk(
-                    smoothInk(
-                      session.points.length === 1 ? [first, { ...first, x: first.x + 0.02 }] : session.points,
-                    ),
-                  );
-              }
-            }}
-            onLostPointerCapture={(event) => {
-              if (stroke.current?.pointer !== event.pointerId) return;
-              stroke.current = null;
-              setInkDraft([]);
             }}
           >
             {slide.masterObjects?.map((o) => (
@@ -919,6 +922,19 @@ export function Canvas({
                         return;
                       }
                       drag(event, o, 'move');
+                    }}
+                    onClick={(event) => {
+                      if (
+                        drawTool !== 'select' ||
+                        (event.target as Element).closest('button, [contenteditable]')
+                      )
+                        return;
+                      window.clearTimeout(inspection.current);
+                      if (event.detail > 1) return;
+                      if (delayInspection) {
+                        // Wait for the second click before opening a sidebar that resizes the canvas.
+                        inspection.current = window.setTimeout(() => inspect.current(o.id), 300);
+                      } else inspect.current(o.id);
                     }}
                     onDoubleClick={(event) => {
                       if (
@@ -1086,9 +1102,30 @@ export function Canvas({
                   </div>
                 );
               })}
-            {showGrid && <div className="canvas-grid" />}
-            {showGuides && <div className="guide vertical" style={{ left: width / 2 }} />}
-            {showGuides && <div className="guide horizontal" style={{ top: height / 2 }} />}
+            {showGrid && (
+              <div
+                className="canvas-grid"
+                style={{
+                  left: workspace.x,
+                  top: workspace.y,
+                  width: workspace.width,
+                  height: workspace.height,
+                  backgroundPosition: `${-workspace.x}px ${-workspace.y}px`,
+                }}
+              />
+            )}
+            {showGuides && (
+              <>
+                <div
+                  className="guide vertical"
+                  style={{ left: width / 2, top: workspace.y, height: workspace.height }}
+                />
+                <div
+                  className="guide horizontal"
+                  style={{ top: height / 2, left: workspace.x, width: workspace.width }}
+                />
+              </>
+            )}
             {alignment?.guides.map(({ axis, at, from, to, main }) => (
               <div
                 key={`${axis}:${at}`}
@@ -1245,6 +1282,39 @@ export function Canvas({
           </>
         )}
       </div>
+    </div>
+  );
+  return (
+    <div
+      className={`canvas-area${panning ? ' panning' : ''}`}
+      data-drawing={drawTool !== 'select' || undefined}
+      ref={areaRef}
+      onPointerDownCapture={(event) => {
+        onPanStart(event);
+        if (!overlay && event.button === 0 && event.isPrimary) {
+          window.clearTimeout(inspection.current);
+          onPastePoint(drawTool === 'select' && isBlank(event.target) ? localPoint(event) : undefined);
+        }
+      }}
+      onPointerDown={beginOnBlank}
+      onPointerMove={moveOnWorkspace}
+      onPointerUp={finishOnWorkspace}
+      onPointerCancel={finishOnWorkspace}
+      onLostPointerCapture={finishOnWorkspace}
+      onDoubleClick={(event) => {
+        if (!overlay && drawTool === 'select' && isBlank(event.target)) onCreateText(localPoint(event));
+      }}
+      onContextMenuCapture={(event) => {
+        if ((xrayDepth && event.ctrlKey) || (event.nativeEvent.isTrusted && event.button === 2)) {
+          event.preventDefault();
+          event.stopPropagation();
+        }
+      }}
+      onContextMenu={(event) => {
+        if (!overlay && isBlank(event.target)) onMenu(event, undefined, localPoint(event));
+      }}
+    >
+      {content}
     </div>
   );
 }

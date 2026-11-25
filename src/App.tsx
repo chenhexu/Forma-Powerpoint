@@ -5,6 +5,7 @@ import { CustomShows } from './ShowTools';
 import { PrintSlides } from './PrintSlides';
 import { CollaborationDialog } from './CollaborationDialog';
 import { ZoomPercentage } from './ZoomPercentage';
+import { SidebarResize, SidebarTabs, type EditorPane } from './EditorSidebar';
 import { emptyRoom, RoomClient } from './collaboration';
 import { applyDeckPatch } from './deckPatch.mjs';
 import { MediaSettings, RecordAudio } from './MediaSettings';
@@ -16,6 +17,8 @@ import {
   pictureAccept,
   pictureCropShapes,
   pictureExtension,
+  pictureFormatName,
+  pictureFormats,
   pictureType,
   preparePicture,
   removeEdgeBackground,
@@ -37,6 +40,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type CSSProperties,
   type DragEvent as ReactDragEvent,
   type ReactNode,
   type MouseEvent as ReactMouseEvent,
@@ -84,6 +88,7 @@ import {
   ImagePlus,
   Layers,
   PanelRight,
+  PanelLeft,
   LockKeyhole,
   Maximize,
   MessageSquarePlus,
@@ -556,7 +561,13 @@ function diagramObjects(layout: string, deck: Deck) {
   return [...lines, ...boxes];
 }
 
-type Menu = { x: number; y: number; area: 'slide' | 'object' | 'canvas'; returnFocus?: HTMLElement };
+type Menu = {
+  x: number;
+  y: number;
+  area: 'slide' | 'object' | 'canvas';
+  position?: Point;
+  returnFocus?: HTMLElement;
+};
 
 function Tool({
   children,
@@ -773,8 +784,60 @@ export default function App() {
   const { smartGuides, spellCheck } = preferences;
   const [alignToSlide, setAlignToSlide] = useState(false);
   const [dragAxis, setDragAxis] = useState<Axis>();
-  const [showLayers, setShowLayers] = useState(true);
-  const [propertiesOpen, setPropertiesOpen] = useState(false);
+  const [panes, setPanes] = useState<{ tabs: EditorPane[]; active?: EditorPane }>({ tabs: [] });
+  const [slidesCollapsed, setSlidesCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarOverlayOpen, setSidebarOverlayOpen] = useState(false);
+  const [slidesWidth, setSlidesWidth] = useState<number>();
+  const [sidebarWidth, setSidebarWidth] = useState(350);
+  const [editorWidth, setEditorWidth] = useState(() => window.innerWidth);
+  const openSidebarButton = useRef<HTMLButtonElement>(null);
+  const slidesToggleButton = useRef<HTMLButtonElement>(null);
+  const focusSidebarButton = useCallback(
+    () => openSidebarButton.current?.focus({ preventScroll: true }),
+    [],
+  );
+  useEffect(() => {
+    const resize = () => setEditorWidth(window.innerWidth);
+    window.addEventListener('resize', resize);
+    return () => window.removeEventListener('resize', resize);
+  }, []);
+  function openPane(id: EditorPane, activate = true) {
+    setPanes((state) => {
+      const tabs = state.tabs.includes(id) ? state.tabs : [...state.tabs, id];
+      const active = activate ? id : (state.active ?? id);
+      return tabs === state.tabs && active === state.active ? state : { tabs, active };
+    });
+    if (activate) {
+      setSidebarCollapsed(false);
+      if (window.innerWidth <= 620) setSidebarOverlayOpen(true);
+    }
+  }
+  function closePane(id: EditorPane) {
+    setPanes((state) => {
+      const index = state.tabs.indexOf(id);
+      if (index === -1) return state;
+      const tabs = state.tabs.filter((tab) => tab !== id);
+      const active = state.active === id ? tabs[Math.min(index, tabs.length - 1)] : state.active;
+      return { tabs, active };
+    });
+  }
+  const compactSidebar = editorWidth <= 620;
+  const slidesMin = compactSidebar ? 76 : 112;
+  const slidesMax = Math.max(slidesMin, Math.min(380, Math.floor(editorWidth * 0.32)));
+  const railWidth = Math.max(slidesMin, Math.min(slidesMax, slidesWidth ?? (compactSidebar ? 90 : 212)));
+  const sidebarMin = Math.min(236, editorWidth - 28);
+  const sidebarMax = Math.max(
+    sidebarMin,
+    Math.min(625, compactSidebar ? editorWidth - 28 : editorWidth - (slidesCollapsed ? 0 : railWidth) - 190),
+  );
+  const toolsWidth = Math.min(sidebarMax, Math.max(sidebarMin, sidebarWidth));
+  const workspaceOpen = !sidebarCollapsed && (!compactSidebar || sidebarOverlayOpen);
+  const collapseSidebar = () => {
+    setSidebarCollapsed(true);
+    setSidebarOverlayOpen(false);
+    requestAnimationFrame(focusSidebarButton);
+  };
   const [view, setView] = useState<'normal' | 'sorter'>(preferences.initialView);
   const [sectionRename, setSectionRename] = useState(false);
   const [find, setFind] = useState(false);
@@ -793,7 +856,6 @@ export default function App() {
   const [inkReplay, setInkReplay] = useState<number>();
   const [editRequest, setEditRequest] = useState<EditRequest | null>(null);
   const textEditor = useRef<TextEditSession | null>(null);
-  const [tab, setTab] = useState<'object' | 'transition' | 'animations'>('object');
   const [orbit, setOrbit] = useState(false);
   const [busy, setBusy] = useState('Opening your workspace…');
   const [notice, setNotice] = useState('');
@@ -883,7 +945,8 @@ export default function App() {
     setEditorPreview(kind);
   }
   const [slideViews, setSlideViews] = useState<Record<string, typeof fitView>>({});
-  const zoomAnchor = useRef<{ id: string; cursor: Point; fraction: Point } | null>(null);
+  const canvasAnchor = useRef<{ id: string; cursor: Point; fraction: Point } | null>(null);
+  const pastePoint = useRef<{ id: string; point: Point } | undefined>(undefined);
   const gestureZoom = useRef(1);
   const [panning, setPanning] = useState(false);
   const panGesture = useRef<{
@@ -957,6 +1020,8 @@ export default function App() {
     slideItems.splice(position, 0, { item, position, exiting: true });
   }
   const object = slide?.objects.find((o) => o.id === selected);
+  const { tabs, active: tab } = panes;
+  const sidebarVisible = workspaceOpen && !!tab;
   const animations = slide?.animations ?? [];
   const animationTarget = selection.length === 1 && object?.kind !== 'unsupported' ? object : undefined;
   const activeAnimation =
@@ -1061,16 +1126,27 @@ export default function App() {
     setSlideViews((views) => ({ ...views, [id]: { ...(views[id] || fitView), ...change } }));
   }
   function setZoom(value: number) {
-    zoomAnchor.current = null;
+    canvasAnchor.current = null;
     if (slide) updateSlideView(slide.id, { zoom: clampSlideZoom(value) });
   }
   function zoomBy(delta: number) {
     setZoom(slideView.zoom + delta);
   }
   function fitSlide() {
-    zoomAnchor.current = null;
+    canvasAnchor.current = null;
     if (slide) updateSlideView(slide.id, fitView);
     if (canvasArea.current) canvasArea.current.scrollTo(0, 0);
+  }
+  function keepCanvasPosition() {
+    const canvas = canvasArea.current?.querySelector('.slide-canvas');
+    if (!canvas || !slide) return;
+    const { left, top } = canvas.getBoundingClientRect();
+    canvasAnchor.current = { id: slide.id, cursor: { x: left, y: top }, fraction: { x: 0, y: 0 } };
+  }
+  function deselectCanvas() {
+    setSelected(null);
+    setOrbit(false);
+    setEditPoints(undefined);
   }
   function startPan(event: ReactPointerEvent<HTMLDivElement>) {
     if (
@@ -1129,6 +1205,8 @@ export default function App() {
     if (!click.defaultPrevented) openMenu(event, 'canvas');
   }
   function adopt(p: Project, fromRoom = false) {
+    setPanes({ tabs: [] });
+    pastePoint.current = undefined;
     const previous = current.current;
     if (!fromRoom) {
       roomClient.current?.close();
@@ -1246,7 +1324,7 @@ export default function App() {
     });
     observer.observe(area, { box: 'border-box' });
     return () => observer.disconnect();
-  }, [view]);
+  }, [view, slide?.id]);
   useEffect(() => {
     const area = canvasArea.current;
     const id = slide?.id;
@@ -1262,7 +1340,7 @@ export default function App() {
       const x = clientX ?? (rect.left + rect.right) / 2;
       const y = clientY ?? (rect.top + rect.bottom) / 2;
       if (rect.width && rect.height) {
-        zoomAnchor.current = {
+        canvasAnchor.current = {
           id,
           cursor: { x, y },
           fraction: { x: (x - rect.left) / rect.width, y: (y - rect.top) / rect.height },
@@ -1304,12 +1382,12 @@ export default function App() {
       area.removeEventListener('gesturestart', pinchStart);
       area.removeEventListener('gesturechange', pinchChange);
       area.removeEventListener('gestureend', pinchEnd);
-      zoomAnchor.current = null;
+      canvasAnchor.current = null;
     };
   }, [view, slide?.id, previewLocked, presenting, busy]);
   useLayoutEffect(() => {
-    const anchor = zoomAnchor.current;
-    zoomAnchor.current = null;
+    const anchor = canvasAnchor.current;
+    canvasAnchor.current = null;
     const area = canvasArea.current;
     const rect = area?.querySelector('.slide-canvas')?.getBoundingClientRect();
     if (!anchor || !area || !rect || anchor.id !== slide?.id) return;
@@ -1323,7 +1401,7 @@ export default function App() {
     const y = dy + top - area.scrollTop;
     if (Math.abs(x) > 0.5 || Math.abs(y) > 0.5)
       updateSlideView(anchor.id, { x: slideView.x - x, y: slideView.y - y });
-  }, [scale, slide?.id]);
+  }, [scale, slide?.id, slide?.objects]);
   useEffect(() => {
     if (!project) return;
     if (!preferences.localRecovery) {
@@ -1430,7 +1508,7 @@ export default function App() {
     setIndex((i) => Math.min(i, next.slides.length - 1));
     setSelected(null);
   }
-  function addObjects(objects: SlideObject[]) {
+  function addObjects(objects: SlideObject[], inspect = true) {
     const p = current.current;
     if (!p) return;
     const next = structuredClone(p.deck);
@@ -1438,12 +1516,13 @@ export default function App() {
     next.slides[index].dirty = true;
     commit(next);
     setSelection(objects.map(({ id }) => id));
-    setTab('object');
+    if (inspect) openPane('object');
   }
-  function add(object: SlideObject) {
-    addObjects([object]);
+  function add(object: SlideObject, inspect = true) {
+    addObjects([object], inspect);
   }
   function selectSlide(next: number) {
+    pastePoint.current = undefined;
     setEditPoints(undefined);
     setInkReplay(undefined);
     setRecognizedInk(undefined);
@@ -1471,8 +1550,7 @@ export default function App() {
   function selectAnimation(animation: SlideAnimation) {
     setSelected(animation.target);
     setSelectedAnimationId(animation.id);
-    setTab('animations');
-    setPropertiesOpen(true);
+    openPane('animations');
     setOrbit(false);
   }
   function makeAnimationsEditable() {
@@ -1500,8 +1578,7 @@ export default function App() {
   }
   function launchAnimationPicker() {
     setRibbon('Animations');
-    setTab('animations');
-    setPropertiesOpen(true);
+    openPane('animations');
     setAnimationPicker(Date.now());
   }
   function chooseAnimation(effect: string, add: boolean, path?: Point[], target = animationTarget?.id) {
@@ -1588,7 +1665,7 @@ export default function App() {
     setAnimationBrush(animations.filter((entry) => entry.target === animationTarget.id && !entry.imported));
     setNotice('Click an object to apply these animations. Press Escape to cancel.');
   }
-  function pickObject(id: string, extend: boolean) {
+  function pickObject(id: string, extend: boolean, inspect = true, fromSelection = false) {
     const target = slide?.objects.find((o) => o.id === id);
     if (!target) return;
     if (animationBrush && !extend && target.kind !== 'unsupported') {
@@ -1619,7 +1696,7 @@ export default function App() {
       }
       setFormatBrush(null);
       setSelected(id);
-      setTab('object');
+      openPane('object');
       setNotice('Formatting applied.');
       patch(id, formatBrush.fields);
       return true;
@@ -1643,7 +1720,7 @@ export default function App() {
             ],
       );
     }
-    if (tab !== 'animations') setTab('object');
+    if (inspect) openPane('object', !sidebarVisible || (tab !== 'animations' && !fromSelection));
   }
   function paintFormat() {
     if (formatBrush) {
@@ -1738,14 +1815,15 @@ export default function App() {
     storeObjectClipboard();
     removeObject();
   }
-  function pasteObject(items = clipboard, source = clipboardSlide.current) {
+  function pasteObject(items = clipboard, source = clipboardSlide.current, position?: Point) {
     if (!deck || !items.length) return;
-    const { deck: next, copies } = pasteObjects(deck, index, items, source);
+    if (position) keepCanvasPosition();
+    const { deck: next, copies } = pasteObjects(deck, index, items, source, position);
     commit(next);
     setSelection(copies.map((o) => o.id));
     setOrbit(false);
     setDrawTool('select');
-    setTab('object');
+    openPane('object');
   }
   function duplicateObject() {
     pasteObject(selectedObjects, slide?.id);
@@ -1820,7 +1898,7 @@ export default function App() {
     if (!deck) return;
     commit(duplicateSlide(deck, index, morph));
     selectSlide(index + 1);
-    setTab(morph ? 'transition' : 'object');
+    if (morph) openPane('transition');
     setNotice(
       morph ? 'Slide duplicated. Change the model pose, then preview the Morph.' : 'Slide duplicated.',
     );
@@ -2310,17 +2388,20 @@ export default function App() {
   }
   function addStroke(points: Point[]) {
     if (!deck) return;
-    add({
-      ...newObject('shape', deck),
-      name:
-        pen.kind === 'highlighter'
-          ? 'Highlighter stroke'
-          : pen.kind === 'pencil'
-            ? 'Pencil stroke'
-            : 'Ink stroke',
-      ...inkFrame(points, { color: pen.color, width: pen.width, opacity: pen.opacity }),
-      fill: 'transparent',
-    });
+    add(
+      {
+        ...newObject('shape', deck),
+        name:
+          pen.kind === 'highlighter'
+            ? 'Highlighter stroke'
+            : pen.kind === 'pencil'
+              ? 'Pencil stroke'
+              : 'Ink stroke',
+        ...inkFrame(points, { color: pen.color, width: pen.width, opacity: pen.opacity }),
+        fill: 'transparent',
+      },
+      false,
+    );
     setSelected(null);
   }
   function lassoInk(points: Point[], extend: boolean) {
@@ -2467,10 +2548,13 @@ export default function App() {
   }
   function createTextAt(point: Point) {
     if (!deck) return;
+    pastePoint.current = undefined;
+    keepCanvasPosition();
     const box = newObject('text', deck);
-    const x = Math.min(point.x, deck.width - 24);
-    const y = Math.min(point.y, deck.height - 24);
-    add({ ...box, x, y, w: Math.min(box.w, deck.width - x), text: '' });
+    const inside = point.x >= 0 && point.x < deck.width && point.y >= 0 && point.y < deck.height;
+    const x = inside ? Math.min(point.x, deck.width - 24) : point.x;
+    const y = inside ? Math.min(point.y, deck.height - 24) : point.y;
+    add({ ...box, x, y, w: inside ? Math.min(box.w, deck.width - x) : box.w, text: '' });
     setEditRequest({ id: box.id, token: performance.now(), kind: 'text' });
   }
   function startTextEdit() {
@@ -2760,22 +2844,27 @@ export default function App() {
   function startOrbit() {
     setDrawTool('select');
     setOrbit(true);
-    setTab('object');
+    openPane('object');
     setRibbon('3D Model');
   }
-  function openMenu(event: ReactMouseEvent, area: Menu['area'], target?: string | number) {
+  function openMenu(event: ReactMouseEvent, area: Menu['area'], target?: string | number, position?: Point) {
     event.preventDefault();
     event.stopPropagation();
     if (area === 'slide' && typeof target === 'number') selectSlide(target);
     if (area === 'object' && typeof target === 'string' && !selection.includes(target))
       pickObject(target, false);
-    if (area === 'canvas') setSelected(null);
+    if (area === 'canvas') {
+      pastePoint.current = undefined;
+      deselectCanvas();
+    }
     const node = event.currentTarget as HTMLElement;
     const focus =
       area === 'slide' && node.classList.contains('slide-row')
         ? node.querySelector<HTMLElement>('.slide-thumb-button') || node
-        : node;
-    setMenu({ area, x: event.clientX, y: event.clientY, returnFocus: focus });
+        : area === 'canvas'
+          ? (canvasArea.current?.querySelector<HTMLElement>('.slide-canvas') ?? node)
+          : node;
+    setMenu({ area, x: event.clientX, y: event.clientY, position, returnFocus: focus });
   }
   function openSlideActions(index: number, button: HTMLElement) {
     const rect = button.getBoundingClientRect();
@@ -2940,7 +3029,7 @@ export default function App() {
       setBusy('');
     }
   }
-  async function imageFile(input: File | File[], crop = false) {
+  async function imageFile(input: File | File[], crop = false, position?: Point) {
     const targetId = current.current?.deck.slides[indexRef.current]?.id;
     if (!targetId) return;
     const projectGeneration = generation.current;
@@ -2978,12 +3067,13 @@ export default function App() {
         pictureFileName: file.name,
         pictureSourceAsset,
         asset,
-        x: o.x + offset * 12,
-        y: o.y + offset * 12,
+        x: (position?.x ?? o.x) + offset * 12,
+        y: (position?.y ?? o.y) + offset * 12,
         w: width * fit,
         h: height * fit,
       };
     });
+    if (position && open.deck.slides[indexRef.current]?.id === targetId) keepCanvasPosition();
     setProject({ ...open, assets });
     commit({
       ...open.deck,
@@ -2993,14 +3083,21 @@ export default function App() {
     });
     if (open.deck.slides[indexRef.current]?.id === targetId) {
       setSelection(objects.map(({ id }) => id));
-      setTab('object');
+      openPane('object');
       setDrawTool('select');
       if (crop) setEditRequest({ id: objects[0].id, token: performance.now(), kind: 'crop' });
     }
   }
+  function originalPictureKey(object: SlideObject) {
+    const assets = current.current?.assets;
+    return [object.pictureSourceAsset, object.originalPicture, object.asset].find(
+      (key) => key && assets?.[key],
+    );
+  }
   async function savePicture(object: SlideObject, format?: PictureDownload) {
-    const key = format ? object.asset : (object.pictureSourceAsset ?? object.originalPicture ?? object.asset);
-    const asset = key && current.current?.assets[key];
+    const key = format ? object.asset : originalPictureKey(object);
+    if (!key) return;
+    const asset = current.current?.assets[key];
     if (!asset) return;
     const name = object.pictureFileName ?? (key?.startsWith('ppt/') ? key.split('/').at(-1)! : object.name);
     try {
@@ -3126,7 +3223,7 @@ export default function App() {
       });
       if (open.deck.slides[indexRef.current]?.id === targetId) {
         setSelected(item.id);
-        setTab('object');
+        openPane('object');
       }
     } catch (error) {
       if (asset) URL.revokeObjectURL(asset.url);
@@ -3302,12 +3399,16 @@ export default function App() {
         return;
       }
       if (e.key === 'Delete' || e.key === 'Backspace') {
-        if ((e.target as HTMLElement).closest('.animation-pane, .context-menu')) return;
+        if (
+          (e.target as HTMLElement).closest('.animation-pane, .context-menu, .sidebar-tabbar, .sidebar-resize')
+        )
+          return;
         e.preventDefault();
         if (focusedSlide >= 0) deleteSlideAt(focusedSlide);
         else removeObject();
       }
       if (e.key === 'Escape') {
+        pastePoint.current = undefined;
         if (drawTool !== 'select') {
           setDrawTool('select');
           return;
@@ -3384,8 +3485,17 @@ export default function App() {
         return;
       const files = Array.from(event.clipboardData?.files ?? []).filter(pictureType);
       event.preventDefault();
-      if (files.length) void imageFile(files);
-      else pasteObject();
+      const location = pastePoint.current;
+      const position =
+        location &&
+        location.id === slide?.id &&
+        event.target instanceof Element &&
+        event.target.matches('.slide-canvas')
+          ? location.point
+          : undefined;
+      pastePoint.current = undefined;
+      if (files.length) void imageFile(files, false, position);
+      else pasteObject(clipboard, clipboardSlide.current, position);
     };
     window.addEventListener('keydown', key);
     window.addEventListener('paste', paste);
@@ -3407,6 +3517,8 @@ export default function App() {
     ]) || [];
   const canDeleteObjects = selectedObjects.length > 0 && !selectedObjects.some((o) => o.deleteBlocked);
   const canDeleteSlide = (deck?.slides.length || 0) > 1;
+  const pictureKey = object?.kind === 'image' && originalPictureKey(object);
+  const originalPictureAsset = pictureKey ? project?.assets[pictureKey] : undefined;
   const sectionItems: MenuItem[] = [
     {
       label: 'Add Section Here',
@@ -3478,24 +3590,21 @@ export default function App() {
               ? [{ label: 'Media Playback…', action: () => setMediaDialog('playback') }]
               : []),
             ...(cropImage ? [{ label: 'Crop Picture', action: startPictureCrop }] : []),
-            ...(object?.kind === 'image' && object.asset && selection.length === 1
+            ...(object?.kind === 'image' && originalPictureAsset && selection.length === 1
               ? [
                   {
                     label: 'Download Original',
+                    detail: pictureFormatName(originalPictureAsset.mime),
                     group: 'Picture download',
                     action: () => void savePicture(object),
+                    submenu: {
+                      label: 'Convert picture',
+                      items: pictureFormats.map(([label, format]) => ({
+                        label: `Convert and Download ${label}`,
+                        action: () => void savePicture(object, format),
+                      })),
+                    },
                   },
-                  ...(
-                    [
-                      ['PNG', 'image/png'],
-                      ['JPEG', 'image/jpeg'],
-                      ['WebP', 'image/webp'],
-                    ] as const
-                  ).map(([label, format]) => ({
-                    label: `Convert and Download ${label}`,
-                    group: 'Picture download',
-                    action: () => void savePicture(object, format),
-                  })),
                 ]
               : []),
             ...(object?.kind === 'model' && editable(object) && selection.length === 1
@@ -3548,7 +3657,7 @@ export default function App() {
         : [
             {
               label: 'Paste',
-              action: () => pasteObject(),
+              action: () => pasteObject(clipboard, clipboardSlide.current, menu?.position),
               disabled: !clipboard.length,
               preview: <ClipboardPaste size={16} />,
             },
@@ -3648,12 +3757,11 @@ export default function App() {
     setRibbon(next);
     setDrawTool('select');
     if (next === 'Draw') setView('normal');
-    if (next === 'Transitions') setTab('transition');
+    if (next === 'Transitions') openPane('transition');
     if (next === 'Animations') {
-      setTab('animations');
-      setPropertiesOpen(true);
+      openPane('animations');
     }
-    if (next === 'Shape Format' || next === 'Picture Format' || next === '3D Model') setTab('object');
+    if (next === 'Shape Format' || next === 'Picture Format' || next === '3D Model') openPane('object');
   }
   function renderRibbon() {
     if (editorPreview)
@@ -4209,11 +4317,10 @@ export default function App() {
                   <Tool
                     title="Selection pane"
                     icon={<Layers size={16} />}
-                    active={showLayers}
-                    onClick={() => {
-                      setShowLayers(!showLayers);
-                      setPropertiesOpen(true);
-                    }}
+                    active={sidebarVisible && tab === 'selection'}
+                    onClick={() =>
+                      sidebarVisible && tab === 'selection' ? closePane('selection') : openPane('selection')
+                    }
                   />
                 </div>
                 <div className="home-row">{alignmentControls}</div>
@@ -4709,11 +4816,10 @@ export default function App() {
               <div className="animation-ribbon-stack animation-advanced">
                 <Tool
                   icon={<PanelRight size={15} />}
-                  active={tab === 'animations'}
-                  onClick={() => {
-                    setTab(tab === 'animations' ? 'object' : 'animations');
-                    setPropertiesOpen(tab !== 'animations');
-                  }}
+                  active={sidebarVisible && tab === 'animations'}
+                  onClick={() =>
+                    sidebarVisible && tab === 'animations' ? closePane('animations') : openPane('animations')
+                  }
                 >
                   Animation Pane
                 </Tool>
@@ -4949,8 +5055,10 @@ export default function App() {
               </Tool>
               <Tool
                 icon={<Layers size={16} />}
-                active={showLayers}
-                onClick={() => setShowLayers(!showLayers)}
+                active={sidebarVisible && tab === 'selection'}
+                onClick={() =>
+                  sidebarVisible && tab === 'selection' ? closePane('selection') : openPane('selection')
+                }
               >
                 Selection Pane
               </Tool>
@@ -5366,10 +5474,29 @@ export default function App() {
       </Ribbon>
       <div
         className="editor-layout"
-        data-animation-pane={tab === 'animations' || undefined}
+        data-slides-open={!slidesCollapsed || undefined}
+        data-sidebar-open={sidebarVisible || undefined}
         inert={presenting !== null}
+        style={{ '--slides-width': `${railWidth}px`, '--editing-width': `${toolsWidth}px` } as CSSProperties}
       >
-        <aside className="slides-sidebar" inert={previewLocked}>
+        <aside
+          className="slides-sidebar"
+          id="slides-sidebar"
+          aria-label="Slides"
+          hidden={slidesCollapsed}
+          inert={previewLocked}
+        >
+          <SidebarResize
+            side="left"
+            width={railWidth}
+            min={slidesMin}
+            max={slidesMax}
+            resize={setSlidesWidth}
+            collapse={() => {
+              setSlidesCollapsed(true);
+              slidesToggleButton.current?.focus({ preventScroll: true });
+            }}
+          />
           <div className="sidebar-heading">
             <span>
               Slides <span className="muted">{deck?.slides.length || 0}</span>
@@ -5401,6 +5528,7 @@ export default function App() {
                             width={deck.width}
                             height={deck.height}
                             assets={project.assets}
+                            size={Math.max(42, railWidth - (compactSidebar ? 34 : 49))}
                           />
                           <div className="slide-caption">{caption}</div>
                         </div>
@@ -5455,6 +5583,7 @@ export default function App() {
                             width={deck.width}
                             height={deck.height}
                             assets={project.assets}
+                            size={Math.max(42, railWidth - (compactSidebar ? 34 : 49))}
                           />
                         </button>
                         <div className="slide-caption">
@@ -5524,26 +5653,44 @@ export default function App() {
           }}
         >
           <div className="workspace-meta">
-            <span>
-              {slide && slide.transition !== 'none' && slide.transition !== 'preserve'
-                ? transitions[slide.transition].label
-                : ''}
-            </span>
+            <div className="workspace-meta-left">
+              <button
+                type="button"
+                ref={slidesToggleButton}
+                className="sidebar-toggle"
+                aria-label={slidesCollapsed ? 'Expand slides sidebar' : 'Collapse slides sidebar'}
+                title={slidesCollapsed ? 'Expand slides sidebar' : 'Collapse slides sidebar'}
+                aria-expanded={!slidesCollapsed}
+                aria-controls="slides-sidebar"
+                disabled={previewLocked}
+                onClick={() => setSlidesCollapsed(!slidesCollapsed)}
+              >
+                <PanelLeft size={15} />
+              </button>
+              <span>
+                {slide && slide.transition !== 'none' && slide.transition !== 'preserve'
+                  ? transitions[slide.transition].label
+                  : ''}
+              </span>
+            </div>
             <div className="workspace-meta-right">
               <span>
                 <Grid2X2 size={13} /> {deck ? `${Math.round(deck.width)} × ${Math.round(deck.height)}` : ''}
               </span>
-              <button
-                type="button"
-                className="workspace-properties-toggle"
-                aria-label="Open properties"
-                aria-expanded={propertiesOpen}
-                disabled={previewLocked}
-                aria-controls="editor-properties"
-                onClick={() => setPropertiesOpen(true)}
-              >
-                <PanelRight size={15} />
-              </button>
+              {!sidebarVisible && (
+                <button
+                  type="button"
+                  ref={openSidebarButton}
+                  className="sidebar-toggle"
+                  aria-label="Open editing sidebar"
+                  aria-expanded={false}
+                  aria-controls="editor-properties"
+                  disabled={previewLocked || !deck}
+                  onClick={() => openPane(tab ?? (object ? 'object' : 'selection'))}
+                >
+                  <PanelRight size={15} />
+                </button>
+              )}
             </div>
           </div>
           {view === 'sorter' && project && deck ? (
@@ -5601,92 +5748,103 @@ export default function App() {
                 ),
               )}
             </div>
-          ) : (
-            <div
-              className={`canvas-area${panning ? ' panning' : ''}`}
-              ref={canvasArea}
-              onPointerDownCapture={startPan}
-              onPointerMove={panSlide}
-              onPointerUp={finishPan}
-              onLostPointerCapture={finishPan}
-              onPointerCancel={finishPan}
-              onContextMenuCapture={(event) => {
-                if (!event.nativeEvent.isTrusted || event.button !== 2) return;
-                event.preventDefault();
-                event.stopPropagation();
+          ) : project && slide ? (
+            <Canvas
+              key={slide.id}
+              slide={slide}
+              editPoints={editPoints}
+              inkReplay={inkReplay}
+              width={project.deck.width}
+              height={project.deck.height}
+              scale={scale}
+              pan={slideView}
+              areaRef={canvasArea}
+              panning={panning}
+              onPanStart={startPan}
+              onPanMove={panSlide}
+              onPanEnd={finishPan}
+              onPastePoint={(point) => {
+                pastePoint.current = point ? { id: slide.id, point } : undefined;
               }}
-            >
-              {project && slide && (
-                <Canvas
-                  key={slide.id}
-                  slide={slide}
-                  editPoints={editPoints}
-                  inkReplay={inkReplay}
-                  width={project.deck.width}
-                  height={project.deck.height}
-                  scale={scale}
-                  pan={slideView}
-                  xrayEnabled={!busy && !previewLocked && presenting === null && !menu}
-                  onCreateText={createTextAt}
-                  onEditData={editInsertData}
-                  assets={project.assets}
-                  selected={selected}
-                  selection={selection}
-                  onSelect={setSelected}
-                  onPick={pickObject}
-                  onPatch={patch}
-                  onMoveGroup={moveGroup}
-                  onMenu={(event, id) => openMenu(event, id ? 'object' : 'canvas', id)}
-                  orbit={orbit}
-                  onModelZoom={changeModelZoom}
-                  drawTool={drawTool}
-                  ink={pen}
-                  eraser={eraser}
-                  onInk={addStroke}
-                  onErase={eraseStrokes}
-                  onLasso={lassoInk}
-                  showGrid={grid}
-                  showGuides={guides}
-                  showRuler={ruler}
-                  smartGuides={smartGuides}
-                  dragAxis={dragAxis}
-                  editRequest={editRequest}
-                  textEditor={textEditor}
-                  spellCheck={spellCheck}
-                  previewing={editorPreview !== null}
-                  annotation={activeRibbon === 'Animations' ? selectAnimation : undefined}
-                  overlay={
-                    editorPreview === 'transition' ? (
-                      <TransitionPreview
-                        project={project}
-                        slide={slide}
-                        scale={scale}
-                        settings={previewSettings}
-                        reduceMotion={preferences.reduceMotion}
-                        previous={deck?.slides[previousVisibleSlide()]}
-                        onFinish={() => setEditorPreview(null)}
-                      />
-                    ) : editorPreview === 'animation' ? (
-                      <AnimationPreview
-                        project={project}
-                        slide={slide}
-                        scale={scale}
-                        settings={previewSettings}
-                        from={previewFrom}
-                      />
-                    ) : customPath ? (
-                      <CustomPath
-                        onCancel={() => setCustomPath(null)}
-                        onSave={(path) => {
-                          chooseAnimation('path:0', customPath.add, path, customPath.target);
-                          setCustomPath(null);
-                        }}
-                      />
-                    ) : undefined
-                  }
-                />
-              )}
-            </div>
+              xrayEnabled={!busy && !previewLocked && presenting === null && !menu}
+              onCreateText={createTextAt}
+              onEditData={editInsertData}
+              assets={project.assets}
+              selected={selected}
+              selection={selection}
+              onDeselect={deselectCanvas}
+              onPick={(id, extend) => pickObject(id, extend, false)}
+              onInspect={(id) => {
+                if (selection.includes(id)) openPane('object', !sidebarVisible || tab !== 'animations');
+              }}
+              delayInspection={!sidebarVisible}
+              onPatch={(id, change) => {
+                if (
+                  [change.x, change.y, change.w, change.h, change.rotation].some(
+                    (value) => value !== undefined,
+                  )
+                )
+                  keepCanvasPosition();
+                patch(id, change);
+              }}
+              onMoveGroup={(ids, move) => {
+                keepCanvasPosition();
+                moveGroup(ids, move);
+              }}
+              onMenu={(event, id, position) => openMenu(event, id ? 'object' : 'canvas', id, position)}
+              orbit={orbit}
+              onModelZoom={changeModelZoom}
+              drawTool={drawTool}
+              ink={pen}
+              eraser={eraser}
+              onInk={(points) => {
+                keepCanvasPosition();
+                addStroke(points);
+              }}
+              onErase={eraseStrokes}
+              onLasso={lassoInk}
+              showGrid={grid}
+              showGuides={guides}
+              showRuler={ruler}
+              smartGuides={smartGuides}
+              dragAxis={dragAxis}
+              editRequest={editRequest}
+              textEditor={textEditor}
+              spellCheck={spellCheck}
+              previewing={editorPreview !== null}
+              annotation={activeRibbon === 'Animations' ? selectAnimation : undefined}
+              overlay={
+                editorPreview === 'transition' ? (
+                  <TransitionPreview
+                    project={project}
+                    slide={slide}
+                    scale={scale}
+                    settings={previewSettings}
+                    reduceMotion={preferences.reduceMotion}
+                    previous={deck?.slides[previousVisibleSlide()]}
+                    onFinish={() => setEditorPreview(null)}
+                  />
+                ) : editorPreview === 'animation' ? (
+                  <AnimationPreview
+                    project={project}
+                    slide={slide}
+                    scale={scale}
+                    settings={previewSettings}
+                    from={previewFrom}
+                  />
+                ) : customPath ? (
+                  <CustomPath
+                    onCancel={() => setCustomPath(null)}
+                    onSave={(path) => {
+                      chooseAnimation('path:0', customPath.add, path, customPath.target);
+                      setCustomPath(null);
+                    }}
+                  />
+                ) : undefined
+              }
+            />
+          ) : (
+            <div className="canvas-area" ref={canvasArea} />
           )}
           <div className="canvas-caption">
             <span>
@@ -5712,343 +5870,329 @@ export default function App() {
         </main>
         <aside
           id="editor-properties"
-          aria-label={tab === 'animations' ? 'Animation controls' : 'Properties'}
+          aria-label="Editing sidebar"
+          hidden={!sidebarVisible}
           inert={previewLocked && (editorPreview !== 'animation' || tab !== 'animations')}
-          className={`properties ${propertiesOpen ? 'is-open' : ''}`}
+          className="properties"
         >
-          {tab === 'animations' ? (
-            <AnimationPane
-              slide={slide}
-              selected={activeAnimation?.id}
-              choose={selectAnimation}
-              remove={removeAnimation}
-              move={moveAnimation}
-              change={(id, patch) => updateAnimation(patch, id)}
-              duplicate={duplicateAnimation}
-              options={openAnimationSettings}
-              previewing={editorPreview === 'animation'}
-              preview={(from) => togglePreview('animation', from)}
-              close={() => {
-                setTab('object');
-                setPropertiesOpen(false);
-              }}
-            />
-          ) : (
-            <>
-              <div className="property-tabs">
-                <button className={tab === 'object' ? 'active' : ''} onClick={() => setTab('object')}>
-                  Object
-                </button>
-                <button className={tab === 'transition' ? 'active' : ''} onClick={() => setTab('transition')}>
-                  Transition
-                </button>
-                <button
-                  type="button"
-                  className="properties-close"
-                  aria-label="Close properties"
-                  onClick={() => setPropertiesOpen(false)}
-                >
-                  <X size={16} />
-                </button>
-              </div>
-              {tab === 'object' ? (
+          <SidebarResize
+            side="right"
+            width={toolsWidth}
+            min={sidebarMin}
+            max={sidebarMax}
+            resize={setSidebarWidth}
+            collapse={collapseSidebar}
+          />
+          <SidebarTabs
+            tabs={tabs}
+            active={tab}
+            select={openPane}
+            close={closePane}
+            collapse={collapseSidebar}
+            locked={previewLocked}
+            focusFallback={focusSidebarButton}
+          />
+          {tabs.map((pane) => (
+            <div
+              key={pane}
+              id={`editor-pane-${pane}`}
+              className="editor-pane"
+              data-pane={pane}
+              role="tabpanel"
+              aria-labelledby={`editor-tab-${pane}`}
+              hidden={tab !== pane}
+            >
+              {pane === 'animations' && (
+                <AnimationPane
+                  slide={slide}
+                  selected={activeAnimation?.id}
+                  choose={selectAnimation}
+                  remove={removeAnimation}
+                  move={moveAnimation}
+                  change={(id, patch) => updateAnimation(patch, id)}
+                  duplicate={duplicateAnimation}
+                  options={openAnimationSettings}
+                  previewing={editorPreview === 'animation'}
+                  preview={(from) => togglePreview('animation', from)}
+                />
+              )}
+              {pane === 'object' && object && (
                 <>
-                  {object ? (
-                    <>
-                      <div className="property-section object-heading">
-                        <div className="object-icon">
-                          {object.kind === 'model' ? (
-                            <Box size={22} />
-                          ) : object.kind === 'text' ? (
-                            <Type size={22} />
-                          ) : (
-                            <Square size={22} />
-                          )}
-                        </div>
-                        <div>
-                          <strong>
-                            {object.kind === 'model'
-                              ? '3D model'
-                              : object.kind === 'text'
-                                ? 'Text box'
-                                : object.kind === 'unsupported'
-                                  ? 'Preserved object'
-                                  : 'Slide object'}
-                          </strong>
-                          <span>
-                            {object.kind === 'model'
-                              ? object.locked
-                                ? 'Preserved native object'
-                                : 'Native PowerPoint object'
-                              : 'Position & appearance'}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="property-section">
-                        <label className="field-label">
-                          Object name
-                          <input
-                            aria-label="Object name"
-                            value={object.name}
-                            disabled={locked}
-                            onChange={(e) => patch(object.id, { name: e.target.value })}
-                          />
-                        </label>
-                        {object.kind === 'model' && !object.locked && (
+                  <div className="property-section object-heading">
+                    <div className="object-icon">
+                      {object.kind === 'model' ? (
+                        <Box size={22} />
+                      ) : object.kind === 'text' ? (
+                        <Type size={22} />
+                      ) : (
+                        <Square size={22} />
+                      )}
+                    </div>
+                    <div>
+                      <strong>
+                        {object.kind === 'model'
+                          ? '3D model'
+                          : object.kind === 'text'
+                            ? 'Text box'
+                            : object.kind === 'unsupported'
+                              ? 'Preserved object'
+                              : 'Slide object'}
+                      </strong>
+                      <span>
+                        {object.kind === 'model'
+                          ? object.locked
+                            ? 'Preserved native object'
+                            : 'Native PowerPoint object'
+                          : 'Position & appearance'}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="property-section">
+                    <label className="field-label">
+                      Object name
+                      <input
+                        aria-label="Object name"
+                        value={object.name}
+                        disabled={locked}
+                        onChange={(e) => patch(object.id, { name: e.target.value })}
+                      />
+                    </label>
+                    {object.kind === 'model' && !object.locked && (
+                      <>
+                        <button className="button wide" onClick={() => textureFolderInput.current?.click()}>
+                          <FolderOpen size={15} /> Add Texture Folder
+                        </button>
+                        {pendingTextures?.asset === object.asset && (
                           <>
+                            <p className="inline-warning">
+                              Texture folder selected. Choose the original FBX, OBJ, glTF, or model ZIP to
+                              apply it.
+                            </p>
                             <button
                               className="button wide"
-                              onClick={() => textureFolderInput.current?.click()}
+                              onClick={() => repairSourceInput.current?.click()}
                             >
-                              <FolderOpen size={15} /> Add Texture Folder
+                              Choose Original Model
                             </button>
-                            {pendingTextures?.asset === object.asset && (
-                              <>
-                                <p className="inline-warning">
-                                  Texture folder selected. Choose the original FBX, OBJ, glTF, or model ZIP to
-                                  apply it.
-                                </p>
-                                <button
-                                  className="button wide"
-                                  onClick={() => repairSourceInput.current?.click()}
-                                >
-                                  Choose Original Model
-                                </button>
-                              </>
-                            )}
                           </>
                         )}
-                        {object.warning && <p className="inline-warning">{object.warning}</p>}
-                        {selectedModelStats && selectedModelWarnings.length > 0 && (
-                          <p className="inline-warning model-performance-note">
-                            This model may run slowly in PowerPoint.{' '}
-                            {modelSizeLabel(selectedModelStats.bytes)} GLB
-                            {' · '}
-                            {selectedModelStats.triangles.toLocaleString()} triangles
-                            {' · '}
-                            {selectedModelStats.textures} textures.
-                          </p>
-                        )}
-                        <h3>Position & size</h3>
-                        <fieldset disabled={locked} className="field-grid">
-                          <NumberField label="X" value={object.x} onChange={(x) => patch(object.id, { x })} />
-                          <NumberField label="Y" value={object.y} onChange={(y) => patch(object.id, { y })} />
+                      </>
+                    )}
+                    {object.warning && <p className="inline-warning">{object.warning}</p>}
+                    {selectedModelStats && selectedModelWarnings.length > 0 && (
+                      <p className="inline-warning model-performance-note">
+                        This model may run slowly in PowerPoint. {modelSizeLabel(selectedModelStats.bytes)}{' '}
+                        GLB
+                        {' · '}
+                        {selectedModelStats.triangles.toLocaleString()} triangles
+                        {' · '}
+                        {selectedModelStats.textures} textures.
+                      </p>
+                    )}
+                    <h3>Position & size</h3>
+                    <fieldset disabled={locked} className="field-grid">
+                      <NumberField label="X" value={object.x} onChange={(x) => patch(object.id, { x })} />
+                      <NumberField label="Y" value={object.y} onChange={(y) => patch(object.id, { y })} />
+                      <NumberField
+                        label="Width"
+                        value={object.w}
+                        min={isLine(object) ? 0 : 24}
+                        onChange={(w) => patch(object.id, { w })}
+                      />
+                      <NumberField
+                        label="Height"
+                        value={object.h}
+                        min={isLine(object) ? 0 : 24}
+                        onChange={(h) => patch(object.id, { h })}
+                      />
+                      <NumberField
+                        label="Frame rotation"
+                        value={object.rotation}
+                        min={-360}
+                        max={360}
+                        onChange={(rotation) => patch(object.id, { rotation })}
+                      />
+                    </fieldset>
+                    <button
+                      className="button wide"
+                      disabled={locked}
+                      onClick={() =>
+                        patch(object.id, {
+                          x: (deck!.width - object.w) / 2,
+                          y: (deck!.height - object.h) / 2,
+                        })
+                      }
+                    >
+                      <AlignCenter size={14} />
+                      Center on slide
+                    </button>
+                  </div>
+                  {object.kind === 'model' && (
+                    <div className="property-section">
+                      <div className="section-heading">
+                        <h3>3D orientation</h3>
+                        <button
+                          aria-label="Reset 3D view"
+                          disabled={locked}
+                          onClick={() => patch(object.id, { pose: [0, 0, 0] })}
+                        >
+                          <RotateCcw size={13} />
+                        </button>
+                      </div>
+                      <button
+                        className={`button wide ${orbit ? 'tinted' : ''}`}
+                        disabled={locked}
+                        onClick={() => (orbit ? setOrbit(false) : startOrbit())}
+                      >
+                        <Move3D size={16} />
+                        {orbit ? '3D rotation mode' : 'Rotate model interactively'}
+                      </button>
+                      <fieldset className="field-grid three" disabled={locked}>
+                        {['Pitch', 'Yaw', 'Roll'].map((label, i) => (
                           <NumberField
-                            label="Width"
-                            value={object.w}
-                            min={isLine(object) ? 0 : 24}
-                            onChange={(w) => patch(object.id, { w })}
-                          />
-                          <NumberField
-                            label="Height"
-                            value={object.h}
-                            min={isLine(object) ? 0 : 24}
-                            onChange={(h) => patch(object.id, { h })}
-                          />
-                          <NumberField
-                            label="Frame rotation"
-                            value={object.rotation}
+                            key={label}
+                            label={label}
                             min={-360}
                             max={360}
-                            onChange={(rotation) => patch(object.id, { rotation })}
+                            value={object.pose?.[i] || 0}
+                            onChange={(v) => {
+                              const pose = [...(object.pose || [0, 0, 0])] as [number, number, number];
+                              pose[i] = v;
+                              patch(object.id, { pose });
+                            }}
                           />
-                        </fieldset>
-                        <button
-                          className="button wide"
-                          disabled={locked}
-                          onClick={() =>
-                            patch(object.id, {
-                              x: (deck!.width - object.w) / 2,
-                              y: (deck!.height - object.h) / 2,
-                            })
-                          }
-                        >
-                          <AlignCenter size={14} />
-                          Center on slide
-                        </button>
-                      </div>
-                      {object.kind === 'model' && (
-                        <div className="property-section">
-                          <div className="section-heading">
-                            <h3>3D orientation</h3>
-                            <button
-                              aria-label="Reset 3D view"
-                              disabled={locked}
-                              onClick={() => patch(object.id, { pose: [0, 0, 0] })}
-                            >
-                              <RotateCcw size={13} />
-                            </button>
-                          </div>
-                          <button
-                            className={`button wide ${orbit ? 'tinted' : ''}`}
-                            disabled={locked}
-                            onClick={() => (orbit ? setOrbit(false) : startOrbit())}
-                          >
-                            <Move3D size={16} />
-                            {orbit ? '3D rotation mode' : 'Rotate model interactively'}
+                        ))}
+                      </fieldset>
+                      <div className="view-presets">
+                        {(
+                          [
+                            ['Front', [0, 0, 0]],
+                            ['Back', [0, 180, 0]],
+                            ['Left', [0, -90, 0]],
+                            ['Right', [0, 90, 0]],
+                            ['Top', [90, 0, 0]],
+                            ['Iso', [25, -35, 0]],
+                          ] as [string, [number, number, number]][]
+                        ).map(([label, pose]) => (
+                          <button key={label} disabled={locked} onClick={() => patch(object.id, { pose })}>
+                            {label}
                           </button>
-                          <fieldset className="field-grid three" disabled={locked}>
-                            {['Pitch', 'Yaw', 'Roll'].map((label, i) => (
-                              <NumberField
-                                key={label}
-                                label={label}
-                                min={-360}
-                                max={360}
-                                value={object.pose?.[i] || 0}
-                                onChange={(v) => {
-                                  const pose = [...(object.pose || [0, 0, 0])] as [number, number, number];
-                                  pose[i] = v;
-                                  patch(object.id, { pose });
-                                }}
-                              />
-                            ))}
-                          </fieldset>
-                          <div className="view-presets">
-                            {(
-                              [
-                                ['Front', [0, 0, 0]],
-                                ['Back', [0, 180, 0]],
-                                ['Left', [0, -90, 0]],
-                                ['Right', [0, 90, 0]],
-                                ['Top', [90, 0, 0]],
-                                ['Iso', [25, -35, 0]],
-                              ] as [string, [number, number, number]][]
-                            ).map(([label, pose]) => (
-                              <button
-                                key={label}
-                                disabled={locked}
-                                onClick={() => patch(object.id, { pose })}
-                              >
-                                {label}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      {object.media && object.asset && (
-                        <button className="button" onClick={() => setMediaDialog('playback')}>
-                          Media Playback
-                        </button>
-                      )}
-                      {(object.table || object.chart || object.link) && (
-                        <div className="property-section insert-object-actions">
-                          {!locked && (object.table || object.chart) && (
-                            <button className="button wide" onClick={() => editInsertData(object.id)}>
-                              {object.table ? 'Edit Table Cells' : 'Edit Chart Data'}
-                            </button>
-                          )}
-                          {object.link && linkTarget && (
-                            <button className="button wide" onClick={() => runInsert('link')}>
-                              Edit Link
-                            </button>
-                          )}
-                        </div>
-                      )}
-                      {object.kind === 'text' && (
-                        <div className="property-section">
-                          <h3>Text</h3>
-                          <fieldset disabled={locked}>
-                            <textarea
-                              className="text-editor"
-                              spellCheck={spellCheck}
-                              aria-label="Text content"
-                              value={object.text}
-                              onChange={(e) => patch(object.id, { text: e.target.value })}
-                            />
-                            <NumberField
-                              label="Font size"
-                              value={fontPoints(object.fontSize)}
-                              min={1}
-                              max={150}
-                              onChange={(points) => patch(object.id, { fontSize: pointsToPixels(points) })}
-                            />
-                            <div className="color-row">
-                              <label>
-                                Text color
-                                <input
-                                  type="color"
-                                  aria-label="Text color"
-                                  value={object.color || '#17233b'}
-                                  onChange={(e) => patch(object.id, { color: e.target.value })}
-                                />
-                              </label>
-                              <button
-                                className={`button ${object.bold ? 'tinted' : ''}`}
-                                onClick={() => patch(object.id, { bold: !object.bold })}
-                              >
-                                Bold
-                              </button>
-                            </div>
-                          </fieldset>
-                        </div>
-                      )}
-                      {object.kind === 'shape' && (
-                        <div className="property-section">
-                          <label className="color-row">
-                            Fill color
-                            <input
-                              aria-label="Fill color"
-                              type="color"
-                              value={object.fill === 'transparent' ? '#ffffff' : object.fill || '#dcd7f5'}
-                              disabled={locked}
-                              onChange={(e) => patch(object.id, { fill: e.target.value })}
-                            />
-                          </label>
-                        </div>
-                      )}
-                      <div className="property-section">
-                        <h3>Arrange</h3>
-                        <div className="arrange-buttons">
-                          <Tool
-                            title="Send backward"
-                            icon={<ArrowDown size={15} />}
-                            onClick={() => layer(-1)}
-                            disabled={locked}
-                          />
-                          <Tool
-                            title="Bring forward"
-                            icon={<ArrowUp size={15} />}
-                            onClick={() => layer(1)}
-                            disabled={locked}
-                          />
-                          <Tool
-                            title="Duplicate object"
-                            icon={<Copy size={15} />}
-                            onClick={duplicateObject}
-                            disabled={locked}
-                          />
-                          <Tool
-                            title={object.locked ? 'Unlock object' : 'Lock object'}
-                            icon={object.locked ? <UnlockKeyhole size={15} /> : <LockKeyhole size={15} />}
-                            disabled={
-                              object.kind === 'unsupported' || !!object.warning?.includes('read-only')
-                            }
-                            onClick={() => patch(object.id, { locked: !object.locked })}
-                          />
-                          <Tool
-                            title="Delete object"
-                            icon={<Trash2 size={15} />}
-                            onClick={removeObject}
-                            disabled={locked || object.deleteBlocked}
-                          />
-                        </div>
+                        ))}
                       </div>
-                    </>
-                  ) : (
-                    <div className="empty-properties">
-                      <div className="empty-icon">
-                        <MousePointer2 size={26} />
-                      </div>
-                      <h3>No object selected</h3>
-                      <p>Select an object on your slide to adjust its position, size, and style.</p>
-                      <button className="button tinted" onClick={() => modelInput.current?.click()}>
-                        <Box size={16} />
-                        Insert a 3D model
-                      </button>
                     </div>
                   )}
+                  {object.media && object.asset && (
+                    <button className="button" onClick={() => setMediaDialog('playback')}>
+                      Media Playback
+                    </button>
+                  )}
+                  {(object.table || object.chart || object.link) && (
+                    <div className="property-section insert-object-actions">
+                      {!locked && (object.table || object.chart) && (
+                        <button className="button wide" onClick={() => editInsertData(object.id)}>
+                          {object.table ? 'Edit Table Cells' : 'Edit Chart Data'}
+                        </button>
+                      )}
+                      {object.link && linkTarget && (
+                        <button className="button wide" onClick={() => runInsert('link')}>
+                          Edit Link
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  {object.kind === 'text' && (
+                    <div className="property-section">
+                      <h3>Text</h3>
+                      <fieldset disabled={locked}>
+                        <textarea
+                          className="text-editor"
+                          spellCheck={spellCheck}
+                          aria-label="Text content"
+                          value={object.text}
+                          onChange={(e) => patch(object.id, { text: e.target.value })}
+                        />
+                        <NumberField
+                          label="Font size"
+                          value={fontPoints(object.fontSize)}
+                          min={1}
+                          max={150}
+                          onChange={(points) => patch(object.id, { fontSize: pointsToPixels(points) })}
+                        />
+                        <div className="color-row">
+                          <label>
+                            Text color
+                            <input
+                              type="color"
+                              aria-label="Text color"
+                              value={object.color || '#17233b'}
+                              onChange={(e) => patch(object.id, { color: e.target.value })}
+                            />
+                          </label>
+                          <button
+                            className={`button ${object.bold ? 'tinted' : ''}`}
+                            onClick={() => patch(object.id, { bold: !object.bold })}
+                          >
+                            Bold
+                          </button>
+                        </div>
+                      </fieldset>
+                    </div>
+                  )}
+                  {object.kind === 'shape' && (
+                    <div className="property-section">
+                      <label className="color-row">
+                        Fill color
+                        <input
+                          aria-label="Fill color"
+                          type="color"
+                          value={object.fill === 'transparent' ? '#ffffff' : object.fill || '#dcd7f5'}
+                          disabled={locked}
+                          onChange={(e) => patch(object.id, { fill: e.target.value })}
+                        />
+                      </label>
+                    </div>
+                  )}
+                  <div className="property-section">
+                    <h3>Arrange</h3>
+                    <div className="arrange-buttons">
+                      <Tool
+                        title="Send backward"
+                        icon={<ArrowDown size={15} />}
+                        onClick={() => layer(-1)}
+                        disabled={locked}
+                      />
+                      <Tool
+                        title="Bring forward"
+                        icon={<ArrowUp size={15} />}
+                        onClick={() => layer(1)}
+                        disabled={locked}
+                      />
+                      <Tool
+                        title="Duplicate object"
+                        icon={<Copy size={15} />}
+                        onClick={duplicateObject}
+                        disabled={locked}
+                      />
+                      <Tool
+                        title={object.locked ? 'Unlock object' : 'Lock object'}
+                        icon={object.locked ? <UnlockKeyhole size={15} /> : <LockKeyhole size={15} />}
+                        disabled={object.kind === 'unsupported' || !!object.warning?.includes('read-only')}
+                        onClick={() => patch(object.id, { locked: !object.locked })}
+                      />
+                      <Tool
+                        title="Delete object"
+                        icon={<Trash2 size={15} />}
+                        onClick={removeObject}
+                        disabled={locked || object.deleteBlocked}
+                      />
+                    </div>
+                  </div>
                 </>
-              ) : (
+              )}
+              {pane === 'object' && !object && (
+                <p className="property-section muted">Select an object to edit its properties.</p>
+              )}
+              {pane === 'transition' && (
                 <div className="property-section">
                   <div className="transition-intro">
                     <Sparkles size={24} />
@@ -6109,7 +6253,7 @@ export default function App() {
                   </p>
                 </div>
               )}
-              {showLayers && (
+              {pane === 'selection' && (
                 <div className="layer-section">
                   <div className="section-heading">
                     <h3>
@@ -6126,7 +6270,7 @@ export default function App() {
                         <button
                           type="button"
                           className={`layer-row ${selection.includes(o.id) ? 'active' : ''}`}
-                          onClick={(event) => pickObject(o.id, event.shiftKey)}
+                          onClick={(event) => pickObject(o.id, event.shiftKey, true, true)}
                           title={o.groupId ? 'Grouped object' : o.name}
                         >
                           {o.kind === 'model' ? (
@@ -6175,8 +6319,8 @@ export default function App() {
                     ))}
                 </div>
               )}
-            </>
-          )}
+            </div>
+          ))}
         </aside>
       </div>
       <footer className="statusbar" inert={previewLocked || presenting !== null}>
@@ -6763,7 +6907,7 @@ export default function App() {
                   onClick={() => {
                     selectSlide(index);
                     setSelected(object.id);
-                    setTab('object');
+                    openPane('object');
                     setView('normal');
                     setDrawTool('select');
                     setFind(false);
@@ -6810,9 +6954,10 @@ export default function App() {
           jump={(position, id) => {
             setAccessibilityOpen(false);
             selectSlide(position);
-            if (id) setSelected(id);
-            setTab('object');
-            setPropertiesOpen(true);
+            if (id) {
+              setSelected(id);
+              openPane('object');
+            }
             setView('normal');
           }}
         />

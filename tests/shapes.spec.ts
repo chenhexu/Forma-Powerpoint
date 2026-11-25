@@ -13,7 +13,7 @@ async function blank(page: Page) {
 }
 
 async function insertShape(page: Page, label: string) {
-  await page.getByRole('tabpanel').getByRole('button', { name: 'Insert shape', exact: true }).click();
+  await page.locator('.ribbon').getByRole('tabpanel').getByRole('button', { name: 'Insert shape', exact: true }).click();
   await page
     .getByRole('menu', { name: 'Insert shape', exact: true })
     .getByRole('menuitem', { name: label, exact: true })

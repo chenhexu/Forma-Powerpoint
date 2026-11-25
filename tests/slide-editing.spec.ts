@@ -16,10 +16,11 @@ test('pastes separate objects across slides and selects Morph without duplicatin
 }) => {
   await newPresentation(page);
   const canvas = page.getByTestId('slide-canvas');
-  const home = page.getByRole('tabpanel');
+  const home = page.locator('.ribbon').getByRole('tabpanel');
   await home.getByRole('button', { name: 'Text Box', exact: true }).click();
   await home.getByRole('button', { name: 'Insert shape', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Rectangle', exact: true }).click();
+  await home.getByRole('button', { name: 'Selection pane', exact: true }).click();
   await page
     .locator('.layer-section')
     .getByRole('button', { name: 'Text box', exact: true })
@@ -34,7 +35,7 @@ test('pastes separate objects across slides and selects Morph without duplicatin
   expect(pasted).toHaveLength(2);
   expect(pasted.every((name) => name?.startsWith('!!Forma_'))).toBe(true);
   await page.getByRole('tab', { name: 'Transitions', exact: true }).click();
-  await page.getByRole('tabpanel').getByRole('button', { name: 'Morph', exact: true }).click();
+  await page.locator('.ribbon').getByRole('tabpanel').getByRole('button', { name: 'Morph', exact: true }).click();
   await expect(page.locator('.slides-sidebar .slide-row[data-slide-id]')).toHaveCount(2);
   const pending = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Export PPTX', exact: true }).click();
@@ -53,7 +54,7 @@ test('sets slide size and native branding, creates a layout, and reuses the chos
 }, info) => {
   await newPresentation(page);
   const canvas = page.getByTestId('slide-canvas');
-  await page.getByRole('tabpanel').getByRole('button', { name: 'Text Box', exact: true }).click();
+  await page.locator('.ribbon').getByRole('tabpanel').getByRole('button', { name: 'Text Box', exact: true }).click();
   await page.getByRole('tab', { name: 'View', exact: true }).click();
   await page.getByRole('button', { name: 'Save Slide as Layout', exact: true }).click();
   await page.getByLabel('Layout name').fill('Review Template');
@@ -112,11 +113,12 @@ test('groups and hides objects, then merges and edits editable freeforms', async
   await newPresentation(page);
   const canvas = page.getByTestId('slide-canvas');
   const layers = page.locator('.layer-section');
-  const home = page.getByRole('tabpanel');
+  const home = page.locator('.ribbon').getByRole('tabpanel');
   for (const shape of ['Rectangle', 'Ellipse']) {
     await home.getByRole('button', { name: 'Insert shape', exact: true }).click();
     await page.getByRole('menuitem', { name: shape, exact: true }).click();
   }
+  await home.getByRole('button', { name: 'Selection pane', exact: true }).click();
   await layers.getByRole('button', { name: 'Rectangle', exact: true }).click({ modifiers: ['Shift'] });
   await home.getByRole('button', { name: 'Arrange objects', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Group', exact: true }).click();

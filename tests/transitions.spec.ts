@@ -60,7 +60,7 @@ test('previews gallery effects and exports native direction and advance settings
   await blank(page);
   await page.getByRole('button', { name: 'Add blank slide', exact: true }).click();
   await page.getByRole('tab', { name: 'Transitions', exact: true }).click();
-  const ribbon = page.getByRole('tabpanel');
+  const ribbon = page.locator('.ribbon').getByRole('tabpanel');
   const gallery = page.getByRole('dialog', { name: 'Transitions', exact: true });
   await ribbon.getByRole('button', { name: 'All transitions', exact: true }).click();
   await expect(gallery.locator('.transition-tile')).toHaveCount(49);
@@ -94,6 +94,48 @@ test('previews gallery effects and exports native direction and advance settings
     expect(slide).toContain('<p14:wheelReverse spokes="1"');
     expect(slide).toMatch(/advClick="0" advTm="2500"/);
   }
+});
+
+test('Morph fades unrelated objects with the same default name in both directions', async ({ page }) => {
+  await blank(page);
+  const canvas = page.getByTestId('slide-canvas');
+  const addText = async (content: string) => {
+    await canvas.dblclick({ position: { x: 60, y: 70 } });
+    const editor = canvas.getByRole('textbox', { name: 'Edit text' });
+    await expect(editor).toBeFocused();
+    await page.keyboard.insertText(content);
+    await editor.press('Escape');
+  };
+  await addText('Previous text');
+  await page.getByRole('button', { name: 'Add blank slide', exact: true }).click();
+  await addText('Next text');
+  await page.getByRole('tab', { name: 'Transitions', exact: true }).click();
+  const ribbon = page.locator('.ribbon').getByRole('tabpanel');
+  await ribbon.getByRole('button', { name: 'Morph', exact: true }).click();
+  const duration = ribbon.getByRole('spinbutton', { name: 'Transition seconds' });
+  await duration.fill('5');
+  await duration.press('Enter');
+
+  const fading = async (stage: ReturnType<Page['getByTestId']>) => {
+    await expect
+      .poll(() =>
+        stage
+          .locator('[data-playback-object]')
+          .evaluateAll(
+            (objects) =>
+              objects
+                .map((object) => Number(getComputedStyle(object).opacity))
+                .filter((opacity) => opacity > 0.02 && opacity < 0.98).length,
+          ),
+      )
+      .toBe(2);
+  };
+  await ribbon.getByRole('button', { name: 'Preview Transition', exact: true }).click();
+  await fading(page.getByTestId('editor-transition-preview'));
+  await page.getByRole('button', { name: 'Stop Preview', exact: true }).click();
+  await page.getByRole('button', { name: 'Present', exact: true }).click();
+  await page.getByTestId('presentation').getByRole('button', { name: 'Previous slide', exact: true }).click();
+  await fading(page.getByTestId('presentation-slide'));
 });
 
 test('contains every transition thumbnail and keeps the gallery header visible while scrolling', async ({

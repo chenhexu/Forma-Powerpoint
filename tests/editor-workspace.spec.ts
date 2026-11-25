@@ -44,7 +44,7 @@ test('places slides at the shown insertion edge and animates deletion', async ({
 test('pans from an object and edits or drags each slide zoom independently', async ({ page }) => {
   await blankPresentation(page);
   const canvas = page.getByTestId('slide-canvas');
-  await page.getByRole('tabpanel').getByRole('button', { name: 'Text Box', exact: true }).click();
+  await page.locator('.ribbon').getByRole('tabpanel').getByRole('button', { name: 'Text Box', exact: true }).click();
   const object = canvas.getByTestId('object-text');
   const initial = (await canvas.boundingBox())!;
   const original = (await object.boundingBox())!;
@@ -181,4 +181,66 @@ test('creates a text box on double-click, keeps preset selection and shows text 
   const frame = object.locator('.text-frame');
   expect((await frame.boundingBox())!.height).toBeGreaterThan((await object.boundingBox())!.height);
   await expect(frame).toHaveCSS('overflow', 'visible');
+});
+
+test('uses the workspace outside the slide for placement, alignment, and finishing edits', async ({
+  page,
+}) => {
+  await blankPresentation(page);
+  const canvas = page.getByTestId('slide-canvas');
+  await page.getByRole('button', { name: 'Text Box', exact: true }).click();
+  await page.keyboard.press('ControlOrMeta+c');
+  for (let i = 0; i < 4; i++) await page.getByRole('button', { name: 'Zoom out', exact: true }).click();
+  const frame = (await canvas.boundingBox())!;
+  const outside = { x: frame.x - 55, y: frame.y + 34 };
+  const texts = canvas.getByTestId('object-text');
+  await page.mouse.click(outside.x, outside.y);
+  await expect(canvas).toBeFocused();
+  await expect(canvas.locator('.slide-object.selected')).toHaveCount(0);
+  await page.keyboard.press('ControlOrMeta+v');
+  await expect(texts).toHaveCount(2);
+  const original = (await texts.first().boundingBox())!;
+  const pasted = (await texts.nth(1).boundingBox())!;
+  expect(Math.abs(pasted.x - outside.x)).toBeLessThan(2);
+  expect(Math.abs(pasted.y - outside.y)).toBeLessThan(2);
+
+  await page.mouse.move(pasted.x + 15, pasted.y + 15);
+  await page.mouse.down();
+  await page.mouse.move(pasted.x + 15, original.y + 18, { steps: 6 });
+  await expect(canvas.getByTestId('smart-guide').first()).toBeVisible();
+  await page.mouse.up();
+  expect(Math.abs((await texts.nth(1).boundingBox())!.y - original.y)).toBeLessThan(2);
+
+  const right = { x: frame.x + frame.width + 20, y: frame.y + 25 };
+  await page.mouse.click(right.x, right.y, { button: 'right' });
+  await page.getByRole('menuitem', { name: 'Paste', exact: true }).click();
+  await expect(texts).toHaveCount(3);
+  expect(Math.abs((await texts.nth(2).boundingBox())!.x - right.x)).toBeLessThan(2);
+
+  const textPoint = { x: frame.x - 38, y: frame.y + frame.height * 0.8 };
+  await page.mouse.dblclick(textPoint.x, textPoint.y);
+  const editor = texts.last().getByRole('textbox', { name: 'Edit text' });
+  await expect(editor).toBeFocused();
+  await page.keyboard.insertText('Outside the slide');
+  await page.mouse.click(right.x, right.y + frame.height * 0.55);
+  await expect(editor).toHaveCount(0);
+  await expect(texts.last()).toHaveText('Outside the slide');
+  await expect(canvas.locator('.slide-object.selected')).toHaveCount(0);
+
+  await canvas.evaluate((element) => {
+    const clipboardData = new DataTransfer();
+    clipboardData.items.add(
+      new File(
+        [
+          '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="30"><rect width="40" height="30" fill="blue"/></svg>',
+        ],
+        'Picture.svg',
+        { type: 'image/svg+xml' },
+      ),
+    );
+    element.dispatchEvent(new ClipboardEvent('paste', { clipboardData, bubbles: true, cancelable: true }));
+  });
+  const image = canvas.getByTestId('object-image');
+  await expect(image).toBeVisible();
+  expect(Math.abs((await image.boundingBox())!.x - right.x)).toBeLessThan(2);
 });

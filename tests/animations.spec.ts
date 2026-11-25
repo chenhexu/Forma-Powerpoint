@@ -27,7 +27,7 @@ test('plays the previous slide in the editor and stops a long transition without
   page,
 }) => {
   await blank(page);
-  const panel = page.getByRole('tabpanel');
+  const panel = page.locator('.ribbon').getByRole('tabpanel');
   await page.getByRole('tab', { name: 'Home', exact: true }).click();
   await panel.getByRole('button', { name: 'Text Box', exact: true }).click();
   await page.getByRole('button', { name: 'Add blank slide', exact: true }).click();
@@ -49,7 +49,7 @@ test('adds multiple effects, honors start and timing, and previews native effect
   page,
 }, testInfo) => {
   await blank(page);
-  const panel = page.getByRole('tabpanel');
+  const panel = page.locator('.ribbon').getByRole('tabpanel');
   await page.getByRole('tab', { name: 'Home', exact: true }).click();
   await panel.getByRole('button', { name: 'Text Box', exact: true }).click();
   await page.getByRole('tab', { name: 'Animations', exact: true }).click();
@@ -134,7 +134,7 @@ test('adds multiple effects, honors start and timing, and previews native effect
 
 test('draws and previews a custom motion path', async ({ page }) => {
   await blank(page);
-  const panel = page.getByRole('tabpanel');
+  const panel = page.locator('.ribbon').getByRole('tabpanel');
   await page.getByRole('tab', { name: 'Home', exact: true }).click();
   await panel.getByRole('button', { name: 'Text Box', exact: true }).click();
   await page.getByRole('tab', { name: 'Animations', exact: true }).click();
@@ -188,7 +188,7 @@ test('previews a PowerPoint-authored paragraph animation and preserves its timin
   await pane.getByRole('button', { name: 'Stop Preview' }).click();
 
   await pane.getByRole('button', { name: 'Fade How about some animation?', exact: true }).click();
-  await page.getByRole('tabpanel').getByRole('button', { name: 'Add Animation' }).click();
+  await page.locator('.ribbon').getByRole('tabpanel').getByRole('button', { name: 'Add Animation' }).click();
   await page
     .getByRole('dialog', { name: 'Add Animation', exact: true })
     .getByRole('button', { name: 'Spin', exact: true })
@@ -204,7 +204,7 @@ test('previews a PowerPoint-authored paragraph animation and preserves its timin
 
 test('opens category galleries with bigger controls and keeps timing inside the ribbon', async ({ page }) => {
   await blank(page);
-  const panel = page.getByRole('tabpanel');
+  const panel = page.locator('.ribbon').getByRole('tabpanel');
   await page.getByRole('tab', { name: 'Home', exact: true }).click();
   await panel.getByRole('button', { name: 'Text Box', exact: true }).click();
   await page.getByRole('tab', { name: 'Animations', exact: true }).click();
@@ -248,7 +248,7 @@ test('edits timing from the pane menu and plays object-triggered effects after P
   page,
 }, testInfo) => {
   await blank(page);
-  const panel = page.getByRole('tabpanel');
+  const panel = page.locator('.ribbon').getByRole('tabpanel');
   const tab = (name: string) => page.getByRole('tab', { name, exact: true });
   await tab('Home').click();
   await panel.getByRole('button', { name: 'Text Box', exact: true }).click();
@@ -315,7 +315,7 @@ test('edits timing from the pane menu and plays object-triggered effects after P
 
 test('duplicates, reorders, and previews an effect from the animation pane', async ({ page }) => {
   await blank(page);
-  const panel = page.getByRole('tabpanel');
+  const panel = page.locator('.ribbon').getByRole('tabpanel');
   await page.getByRole('tab', { name: 'Home', exact: true }).click();
   await panel.getByRole('button', { name: 'Text Box', exact: true }).click();
   await page.getByRole('tab', { name: 'Animations', exact: true }).click();
@@ -348,7 +348,7 @@ test('copies effects to another slide with Animation Painter and opens Add Anima
   page,
 }) => {
   await blank(page);
-  const panel = page.getByRole('tabpanel');
+  const panel = page.locator('.ribbon').getByRole('tabpanel');
   const tab = (name: string) => page.getByRole('tab', { name, exact: true });
   await tab('Home').click();
   await panel.getByRole('button', { name: 'Text Box', exact: true }).click();
@@ -383,7 +383,7 @@ test('zooms and scrolls animation tracks, edits clips, and exports their native 
   page,
 }, testInfo) => {
   await blank(page);
-  const panel = page.getByRole('tabpanel');
+  const panel = page.locator('.ribbon').getByRole('tabpanel');
   const tab = (name: string) => page.getByRole('tab', { name, exact: true });
   await tab('Home').click();
   await panel.getByRole('button', { name: 'Text Box', exact: true }).click();

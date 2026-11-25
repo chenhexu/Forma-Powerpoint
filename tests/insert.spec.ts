@@ -31,7 +31,7 @@ test('shows shared slide layout previews and distinct Insert icons without chang
   page,
 }) => {
   await blank(page);
-  const panel = page.getByRole('tabpanel');
+  const panel = page.locator('.ribbon').getByRole('tabpanel');
   await panel.getByRole('button', { name: 'New Slide', exact: true }).click();
   const insertMenu = page.getByRole('menu', { name: 'New Slide', exact: true });
   const preview = insertMenu

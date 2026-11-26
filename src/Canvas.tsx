@@ -72,6 +72,8 @@ type DragMode =
   | ShapeAdjustment
   | { ring: number; point: number };
 
+const textFrameEdges = ['n', 'e', 's', 'w'] as const;
+
 export function ObjectContent({
   o,
   assets,
@@ -437,6 +439,7 @@ export function Canvas({
   annotation,
 }: CanvasProps) {
   const [draft, setDraft] = useState<SlideObject | null>(null);
+  const [movingText, setMovingText] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const initialTextSelection = useRef<TextSelection | undefined>(undefined);
   const [cropping, setCropping] = useState<string | null>(null);
@@ -638,6 +641,7 @@ export function Canvas({
         if (Math.hypot(event.clientX - e.clientX, event.clientY - e.clientY) < 2) return;
         moved = true;
         if (extendOnClick && !selection.includes(o.id) && onPick(o.id, false)) return;
+        if (mode === 'move' && o.kind === 'text') setMovingText(true);
       }
       const point = localPoint(event),
         dx = point.x - start.x,
@@ -712,6 +716,7 @@ export function Canvas({
       window.removeEventListener('pointercancel', finish);
       window.removeEventListener('keydown', cancel, true);
       setDraft(null);
+      setMovingText(false);
       setFrameRotation(undefined);
       setDelta(null);
       setAlignment(undefined);
@@ -867,6 +872,7 @@ export function Canvas({
                 if (rotationModel?.id === o.id && ringPose) o = { ...o, pose: ringPose };
                 const isCropping = !!cropObject && cropObject.id === o.id;
                 const line = isLine(o);
+                const moveTextFrame = o.kind === 'text' && editing !== o.id;
                 const style = objectStyle(o);
                 return [
                   <div
@@ -1003,6 +1009,7 @@ export function Canvas({
                     <div
                       key={`controls-${o.id}`}
                       className="selection-controls"
+                      data-text-frame={o.kind === 'text' || undefined}
                       tabIndex={-1}
                       style={
                         {
@@ -1017,6 +1024,11 @@ export function Canvas({
                           '--resize-border': `${1 / scale}px`,
                         } as CSSProperties
                       }
+                      onPointerDown={(event) => {
+                        if (event.target instanceof Element && event.target.matches('.text-frame-edge')) {
+                          drag(event, o, 'move');
+                        }
+                      }}
                       onContextMenu={(event) => onMenu(event, o.id)}
                     >
                       {!line && (
@@ -1025,6 +1037,10 @@ export function Canvas({
                           style={{ borderWidth: 1.4 / scale, borderRadius: 'inherit' }}
                         />
                       )}
+                      {moveTextFrame &&
+                        textFrameEdges.map((edge) => (
+                          <span key={edge} className={`text-frame-edge ${edge}`} aria-hidden="true" />
+                        ))}
                       {selection.length === 1 &&
                         line &&
                         !o.connector &&
@@ -1312,6 +1328,7 @@ export function Canvas({
     <div
       className={`canvas-area${panning ? ' panning' : ''}`}
       data-drawing={drawTool !== 'select' || undefined}
+      data-moving-text={movingText || undefined}
       ref={areaRef}
       onPointerDownCapture={(event) => {
         onPanStart(event);

@@ -523,6 +523,10 @@ svg {
   cursor: crosshair;
   touch-action: none;
 }
+.canvas-area[data-moving-text],
+.canvas-area[data-moving-text] * {
+  cursor: move !important;
+}
 .canvas-area.panning,
 .canvas-area.panning * {
   cursor: grabbing !important;
@@ -689,6 +693,34 @@ svg {
   border: solid var(--accent);
   pointer-events: none;
 }
+.text-frame-edge {
+  position: absolute;
+  pointer-events: auto;
+  cursor: move;
+  touch-action: none;
+}
+.text-frame-edge:is(.n, .s) {
+  inset-inline: 0;
+  height: calc(var(--resize-hit) * 0.65);
+  transform: translateY(-50%);
+}
+.text-frame-edge.n {
+  top: 0;
+}
+.text-frame-edge.s {
+  top: 100%;
+}
+.text-frame-edge:is(.w, .e) {
+  inset-block: 0;
+  width: calc(var(--resize-hit) * 0.65);
+  transform: translateX(-50%);
+}
+.text-frame-edge.w {
+  left: 0;
+}
+.text-frame-edge.e {
+  left: 100%;
+}
 .resize-handle,
 .shape-adjustment {
   position: absolute;
@@ -721,7 +753,7 @@ svg {
 }
 .frame-resize-handle:is(.n, .s) {
   left: 50%;
-  width: 100%;
+  width: var(--side-resize-span, 100%);
   cursor: ns-resize;
 }
 .resize-handle.n {
@@ -734,8 +766,11 @@ svg {
 }
 .frame-resize-handle:is(.w, .e) {
   top: 50%;
-  height: 100%;
+  height: var(--side-resize-span, 100%);
   cursor: ew-resize;
+}
+.selection-controls[data-text-frame] {
+  --side-resize-span: var(--resize-hit);
 }
 .resize-handle.w {
   left: 0;

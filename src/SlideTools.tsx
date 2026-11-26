@@ -8,10 +8,12 @@ export function SlideToolsDialog({
   title,
   onClose,
   children,
+  className,
 }: {
   title: string;
   onClose: () => void;
   children: ReactNode;
+  className?: string;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const id = useId();
@@ -19,7 +21,7 @@ export function SlideToolsDialog({
   return (
     <dialog
       ref={dialog}
-      className="modal insert-dialog slide-tools-dialog"
+      className={`modal insert-dialog slide-tools-dialog${className ? ` ${className}` : ''}`}
       aria-labelledby={id}
       onCancel={(event) => {
         event.preventDefault();

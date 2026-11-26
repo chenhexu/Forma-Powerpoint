@@ -34,8 +34,8 @@ export function CollaborationDialog({
   const connected = status.state === 'connected';
   const destination = cloud && parseShareCode(code);
   return (
-    <SlideToolsDialog title="Collaborate" onClose={close}>
-      <div className="insert-form">
+    <SlideToolsDialog title="Collaborate" onClose={close} className="collaboration-dialog">
+      <div className="insert-form collaboration-form">
         {status.error && (
           <p className="insert-error" role="alert">
             {status.error}
@@ -143,18 +143,20 @@ export function CollaborationDialog({
         ) : (
           <>
             {cloud ? (
-              <section className="room-history">
+              <section className="room-history room-setup">
                 <h3>Share this presentation</h3>
                 <p>Create a shared copy with its own version history.</p>
-                <label className="insert-check">
-                  <input type="radio" name="share-mode" checked={mode === 'invite'} onChange={() => setMode('invite')} />
-                  Invite Google accounts
-                </label>
-                <label className="insert-check">
-                  <input type="radio" name="share-mode" checked={mode === 'link'} onChange={() => setMode('link')} />
-                  Anyone with the link or room code
-                </label>
-                <button type="button" className="button primary" disabled={creating} onClick={async () => {
+                <div className="room-share-methods">
+                  <label className="room-mode-card" data-selected={mode === 'invite'}>
+                    <input type="radio" name="share-mode" checked={mode === 'invite'} onChange={() => setMode('invite')} />
+                    <span><strong>Invite people</strong><small>Only invited Google accounts can join.</small></span>
+                  </label>
+                  <label className="room-mode-card" data-selected={mode === 'link'}>
+                    <input type="radio" name="share-mode" checked={mode === 'link'} onChange={() => setMode('link')} />
+                    <span><strong>Share a link</strong><small>Anyone with the link can join with the access level you choose.</small></span>
+                  </label>
+                </div>
+                <button type="button" className="button primary room-create-button" disabled={creating} onClick={async () => {
                   if (!cloud.signedIn) return cloud.signIn();
                   setError('');
                   setCreating(true);
@@ -174,7 +176,7 @@ export function CollaborationDialog({
               </>
             )}
             <form
-              className="insert-form"
+              className="insert-form room-join-form"
               onSubmit={(event) => {
                 event.preventDefault();
                 if (destination) location.assign(destination);

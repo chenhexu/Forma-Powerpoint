@@ -161,6 +161,9 @@
   justify-items: center;
   padding: min(13vh, 110px) 22px 32px;
 }
+.auth-page > .site-brand {
+  margin-bottom: 2px;
+}
 .site-auth-card {
   width: min(440px, 100%);
   padding: clamp(22px, 6vw, 38px);
@@ -169,6 +172,10 @@
   border: 1px solid var(--site-border);
   border-radius: 18px;
   text-align: center;
+  box-shadow: 0 20px 60px #33204d0c;
+}
+.site-auth-card .site-button {
+  box-sizing: border-box;
 }
 .site-auth-card > svg {
   color: #5d3db1;
@@ -190,6 +197,20 @@
   display: grid;
   gap: 10px;
   margin: 20px 0;
+}
+.site-auth-actions .site-button {
+  width: 100%;
+  min-height: 48px;
+  justify-content: center;
+}
+@media (max-width: 520px) {
+  .auth-page {
+    padding: 8vh 16px 24px;
+  }
+  .site-auth-card {
+    margin-top: 16px;
+    border-radius: 15px;
+  }
 }
 .site-text-link {
   display: inline-flex;

@@ -3980,6 +3980,185 @@ fieldset {
   max-height: min(80dvh, 650px);
   overflow: auto;
 }
+.slide-tools-dialog.share-dialog,
+.slide-tools-dialog.collaboration-dialog {
+  width: min(760px, calc(100vw - 28px));
+  padding: 22px 24px 24px;
+}
+.share-dialog h2,
+.collaboration-dialog h2 {
+  padding: 0 34px 15px 0;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+  letter-spacing: -0.025em;
+}
+.share-form,
+.collaboration-form {
+  gap: 18px;
+}
+.share-dialog .room-history,
+.collaboration-dialog .room-history {
+  gap: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+  background: color-mix(in srgb, var(--panel) 76%, var(--accent-light));
+}
+.share-dialog .room-history h3,
+.collaboration-dialog .room-history h3 {
+  font-size: 15px;
+  letter-spacing: -0.01em;
+}
+.share-dialog .room-history > p,
+.collaboration-dialog .room-history > p,
+.share-email-hint {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.share-dialog .share-access-row {
+  display: grid;
+  grid-template-columns: 22px minmax(150px, 1fr) minmax(130px, 0.6fr);
+  gap: 10px;
+  align-items: center;
+}
+.share-dialog .room-select {
+  width: 100%;
+}
+.share-dialog .room-select select {
+  width: 100%;
+  min-height: 38px;
+  padding: 7px 30px 7px 10px;
+}
+.share-dialog .share-section > label {
+  display: grid;
+  gap: 6px;
+}
+.share-dialog .share-section input {
+  min-height: 38px;
+  font-size: 13px;
+}
+.share-dialog .share-section .insert-form-row {
+  align-items: center;
+}
+.share-dialog .share-invite-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(138px, 0.42fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+.share-dialog .share-invite-form > label {
+  min-width: 0;
+}
+.share-dialog .share-invite-form > .room-select select {
+  min-height: 37px;
+}
+.share-dialog .room-version {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(120px, 0.38fr) auto auto;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.share-dialog .room-version > span {
+  align-self: center;
+  overflow-wrap: anywhere;
+}
+.share-dialog .room-person {
+  min-height: 40px;
+}
+.share-email-hint {
+  margin: -4px 0 0 !important;
+}
+.collaboration-dialog .room-setup {
+  border: 0;
+  padding: 0;
+  background: transparent;
+}
+.room-share-methods {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.room-mode-card {
+  min-width: 0;
+  min-height: 96px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  cursor: pointer;
+}
+.room-mode-card[data-selected='true'] {
+  border-color: var(--accent);
+  background: var(--accent-light);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.room-mode-card input {
+  margin: 3px 0 0;
+  accent-color: var(--accent);
+}
+.room-mode-card > span {
+  display: grid;
+  gap: 5px;
+}
+.room-mode-card strong {
+  font-size: 14px;
+}
+.room-mode-card small {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.room-create-button,
+.collaboration-dialog .room-join-form > .button {
+  min-height: 42px;
+}
+.collaboration-dialog .room-join-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 10px;
+}
+.collaboration-dialog .room-join-form label {
+  min-width: 0;
+}
+.collaboration-dialog .room-join-form input {
+  min-height: 40px;
+}
+@media (max-width: 580px) {
+  .slide-tools-dialog.share-dialog,
+  .slide-tools-dialog.collaboration-dialog {
+    padding: 18px 14px;
+  }
+  .share-dialog .share-access-row {
+    grid-template-columns: 22px minmax(0, 1fr);
+  }
+  .share-dialog .share-access-row > .room-select:last-child {
+    grid-column: 2;
+  }
+  .share-dialog .share-invite-form {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .share-dialog .share-invite-form > label {
+    grid-column: 1 / -1;
+  }
+  .share-dialog .room-version {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+  }
+  .share-dialog .room-version > span {
+    grid-column: 1 / -1;
+  }
+  .room-share-methods {
+    grid-template-columns: 1fr;
+  }
+  .collaboration-dialog .room-join-form {
+    grid-template-columns: 1fr;
+  }
+}
 .reuse-slide-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(136px, 1fr));

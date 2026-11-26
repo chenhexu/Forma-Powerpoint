@@ -89,7 +89,7 @@ Shared edits, comments, and named versions are stored in Supabase. The editor ch
 1. Apply [the collaboration migration](supabase/migrations/20261125010000_collaboration.sql) in Supabase after the presentations migration. It creates the shared workspace tables and private storage bucket.
 2. In Supabase Auth, turn on **Allow anonymous sign-ins** for guests who join by link or room code. Invite-only sharing uses the existing Google provider. [Supabase Auth settings](https://supabase.com/docs/guides/auth/general-configuration)
 3. Deploy Forma to Vercel with its existing Supabase URL and publishable key.
-4. For email delivery from Forma, configure `RESEND_API_KEY`, `FORMA_INVITE_FROM` (a sender on a verified Resend domain), and `FORMA_SITE_URL` (your public Forma URL) in Vercel. Redeploy after adding them. Forma can also open your email app with the invitation filled in. [Resend email setup](https://resend.com/docs/api-reference/emails/send-email)
+4. For automatic invitation email from Forma, configure `RESEND_API_KEY`, `FORMA_INVITE_FROM` (for example, `Forma <collaborate@yourdomain.com>` on a domain verified with Resend), and `FORMA_SITE_URL` (your public Forma URL) in Vercel. Redeploy after adding them. Without these settings, Forma grants access and opens your email app with the invitation filled in, but does not send email itself. Check Resend's delivery logs and your recipient's spam or school quarantine if mail is configured but not arriving. [Resend email setup](https://resend.com/docs/api-reference/emails/send-email)
 
 ## Accounts and cloud decks
 

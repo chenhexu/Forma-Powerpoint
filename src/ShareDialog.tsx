@@ -81,16 +81,16 @@ export function ShareDialog({ room, info, close, error, retrying }: {
   }
 
   const mailto = (address: string) => 'mailto:' + encodeURIComponent(address) + '?' + new URLSearchParams({
-    subject: 'Forma presentation invitation',
-    body: 'Open the shared presentation and sign in with this Google account:\n\n' + inviteURL,
+    subject: 'You’re invited to collaborate in Forma',
+    body: 'You’ve been invited to collaborate on a presentation in Forma. Open the link and sign in with this Google account:\n\n' + inviteURL,
   }).toString().replace(/\+/g, '%20');
 
   return (
-    <SlideToolsDialog title="Share presentation" onClose={close}>
+    <SlideToolsDialog title="Share presentation" onClose={close} className="share-dialog">
       <div className="insert-form share-form">
         {owner && (
           <>
-            <section className="room-history">
+            <section className="room-history share-section">
               <h3>General access</h3>
               <div className="share-access-row">
                 {info.linkRole ? <Link2 size={18} /> : <LockKeyhole size={18} />}
@@ -122,7 +122,7 @@ export function ShareDialog({ room, info, close, error, retrying }: {
                 </>}
               </div>
             </section>
-            <section className="room-history">
+            <section className="room-history share-section">
               <h3>Invite by email</h3>
               <form className="insert-form-row share-invite-form" onSubmit={(event) => {
                 event.preventDefault();
@@ -147,6 +147,7 @@ export function ShareDialog({ room, info, close, error, retrying }: {
                 <RolePicker label="Invitation permission" value={role} change={setRole} disabled={working} />
                 <button type="submit" className="button primary" disabled={working}><Mail size={15} /> Invite</button>
               </form>
+              <p className="share-email-hint">Access is granted in Forma. Automatic email delivery needs an email sender; otherwise, use your email app below.</p>
               {mailRecipient && <a className="button" href={mailto(mailRecipient)}><Mail size={15} /> Open email app</a>}
               {info.invites?.map((invite) => (
                 <div className="room-version" key={invite.email}>

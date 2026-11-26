@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { SlideToolsDialog } from './SlideTools';
 import { hasRoomCode, type RoomStatus } from './collaboration';
+import { parseShareCode, type ShareRole } from './sharedRooms';
 
 export function CollaborationDialog({
   status,
@@ -11,6 +12,7 @@ export function CollaborationDialog({
   checkpoint,
   restore,
   close,
+  cloud,
 }: {
   status: RoomStatus;
   create: () => void;
@@ -20,12 +22,17 @@ export function CollaborationDialog({
   checkpoint: (name: string) => void;
   restore: (id: string) => void;
   close: () => void;
+  cloud?: { signedIn: boolean; create: (role: ShareRole | null) => Promise<void>; signIn: () => void };
 }) {
   const [code, setCode] = useState('');
   const [name, setName] = useState('');
   const [copy, setCopy] = useState('');
   const [version, setVersion] = useState<string>();
+  const [mode, setMode] = useState<'invite' | 'link'>('invite');
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState('');
   const connected = status.state === 'connected';
+  const destination = cloud && parseShareCode(code);
   return (
     <SlideToolsDialog title="Collaborate" onClose={close}>
       <div className="insert-form">
@@ -34,6 +41,7 @@ export function CollaborationDialog({
             {status.error}
           </p>
         )}
+        {error && <p className="insert-error" role="alert">{error}</p>}
         {status.code ? (
           <>
             <p role="status">
@@ -134,30 +142,53 @@ export function CollaborationDialog({
           </>
         ) : (
           <>
-            <p>Create a room for this presentation or enter a code to open someone else’s deck.</p>
-            <button
-              type="button"
-              className="button primary"
-              disabled={status.state === 'connecting'}
-              onClick={create}
-            >
-              Create Room
-            </button>
+            {cloud ? (
+              <section className="room-history">
+                <h3>Share this presentation</h3>
+                <p>Create a shared copy with its own version history.</p>
+                <label className="insert-check">
+                  <input type="radio" name="share-mode" checked={mode === 'invite'} onChange={() => setMode('invite')} />
+                  Invite Google accounts
+                </label>
+                <label className="insert-check">
+                  <input type="radio" name="share-mode" checked={mode === 'link'} onChange={() => setMode('link')} />
+                  Anyone with the link or room code
+                </label>
+                <button type="button" className="button primary" disabled={creating} onClick={async () => {
+                  if (!cloud.signedIn) return cloud.signIn();
+                  setError('');
+                  setCreating(true);
+                  try {
+                    await cloud.create(mode === 'link' ? 'viewer' : null);
+                  } catch (error) {
+                    setError(error instanceof Error ? error.message : 'The room could not be created.');
+                  } finally {
+                    setCreating(false);
+                  }
+                }}>{creating ? 'Creating shared workspace…' : cloud.signedIn ? 'Create shared workspace' : 'Sign in to share'}</button>
+              </section>
+            ) : (
+              <>
+                <p>Create a room for this presentation or enter a code to open someone else’s deck.</p>
+                <button type="button" className="button primary" disabled={status.state === 'connecting'} onClick={create}>Create Room</button>
+              </>
+            )}
             <form
               className="insert-form"
               onSubmit={(event) => {
                 event.preventDefault();
-                if (hasRoomCode(code) && status.state !== 'connecting') join(code.trim());
+                if (destination) location.assign(destination);
+                else if (hasRoomCode(code) && status.state !== 'connecting') join(code.trim());
               }}
             >
               <label>
-                Enter room code
+                {cloud ? 'Enter a share link or room code' : 'Enter room code'}
                 <input value={code} onChange={(event) => setCode(event.target.value)} spellCheck={false} />
               </label>
               <button
                 type="submit"
                 className="button"
-                disabled={!hasRoomCode(code) || status.state === 'connecting'}
+                disabled={creating || (!destination && !hasRoomCode(code)) || status.state === 'connecting'}
               >
                 Join Room
               </button>

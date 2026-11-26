@@ -1,18 +1,25 @@
 import { useEffect, useState, lazy, Suspense } from 'react';
 import type { Session } from '@supabase/supabase-js';
-import { ArrowRight, Box, Cloud, Layers, LogOut, Presentation, Sparkles } from 'lucide-react';
+import { ArrowRight, Box, Cloud, LogOut, Presentation, Sparkles } from 'lucide-react';
 import { cloudClient, deckIdPattern, deckPath } from './authClient';
+import { accountProfile, cacheMicrosoftPhoto, readMicrosoftPhoto } from './accountProfile';
+import { AccountAvatar } from './AccountAvatar';
+import { FormaMark } from './FormaMark';
 import './site.css';
 
 const Editor = lazy(() => import('./App'));
 const Library = lazy(() => import('./CloudPages').then(({ Library }) => ({ default: Library })));
 const CloudEditor = lazy(() => import('./CloudPages').then(({ CloudEditor }) => ({ default: CloudEditor })));
+const SharedDeck = lazy(() => import('./SharedDeck'));
 const signInReturnKey = 'forma-auth-return';
+const signInProviderKey = 'forma-auth-provider';
 
 export type EditorAccount = {
   enabled: boolean;
   userId?: string;
   email?: string;
+  name?: string;
+  avatar?: string;
   signOut: () => Promise<void>;
 };
 
@@ -21,18 +28,21 @@ const detail = (error: unknown) =>
 
 function returnPath(value: string | null) {
   if (value === '/editor' || value === '/decks') return value;
+  const share = value?.match(/^\/share\/([^#/?]+)(?:#[a-f\d]{64})?$/);
+  if (share && deckIdPattern.test(share[1])) return value!;
   const match = value?.match(/^\/editor\/([^/]+)$/);
   return match && deckIdPattern.test(match[1]) ? deckPath(match[1]) : '/decks';
 }
 
 export function signInPath(next: string) {
-  return '/sign-in?' + new URLSearchParams({ next: returnPath(next) });
+  const [path, token] = returnPath(next).split('#');
+  return '/sign-in?' + new URLSearchParams({ next: path }) + (token ? '#' + token : '');
 }
 
 export function Brand() {
   return (
     <a className="site-brand" href="/" aria-label="Forma home">
-      <Layers size={23} /> forma
+      <FormaMark className="site-brand-mark" title="Forma" /> forma
     </a>
   );
 }
@@ -49,7 +59,10 @@ export function SiteHeader({ account }: { account: EditorAccount }) {
           <a href="/editor">Editor</a>
           {account.userId ? (
             <>
-              <a href="/decks">My Decks</a>
+              <a className="site-account-link" href="/decks">
+                <AccountAvatar {...account} />
+                My Decks
+              </a>
               <button
                 className="site-icon-button"
                 type="button"
@@ -150,11 +163,12 @@ function SignIn({ next }: { next: string }) {
     setError('');
     try {
       sessionStorage.setItem(signInReturnKey, next);
+      sessionStorage.setItem(signInProviderKey, selected);
       const { error } = await cloudClient.auth.signInWithOAuth({
         provider: selected,
         options: {
           redirectTo: new URL('/auth/callback', location.origin).toString(),
-          scopes: selected === 'azure' ? 'email' : undefined,
+          scopes: selected === 'azure' ? 'email User.Read' : 'openid',
         },
       });
       if (error) throw error;
@@ -170,7 +184,9 @@ function SignIn({ next }: { next: string }) {
       <main className="site-auth-card">
         <Cloud size={26} />
         <h1>Sign in to Forma</h1>
-        <p>Open your private decks and pick up where you left off on another device.</p>
+        <p>{next.startsWith('/share/')
+          ? 'If you received an invitation, sign in with the Google account it was sent to.'
+          : 'Open your private decks and pick up where you left off on another device.'}</p>
         {cloudClient ? (
           <div className="site-auth-actions">
             <button
@@ -219,12 +235,18 @@ function AuthCallback({ query }: { query: URLSearchParams }) {
     }
     void cloudClient.auth
       .exchangeCodeForSession(code)
-      .then(({ error }) => {
+      .then(async ({ data, error }) => {
         if (error) {
           history.replaceState(null, '', '/auth/callback');
           setError(error.message);
         } else {
+          const provider = sessionStorage.getItem(signInProviderKey);
+          const session = data.session;
+          if (provider === 'azure' && session?.provider_token) {
+            await cacheMicrosoftPhoto(session.user.id, session.provider_token).catch(() => {});
+          }
           sessionStorage.removeItem(signInReturnKey);
+          sessionStorage.removeItem(signInProviderKey);
           location.replace(next);
         }
       })
@@ -255,6 +277,10 @@ function AuthCallback({ query }: { query: URLSearchParams }) {
 
 export default function Site() {
   const [session, setSession] = useState<Session | null>();
+  const [microsoftPhoto, setMicrosoftPhoto] = useState<{ userId: string; url: string }>();
+  const user = session?.user;
+  const userId = user?.id;
+  const profile = accountProfile(user);
   const path = location.pathname.replace(/\/$/, '') || '/';
   const search = new URLSearchParams(location.search);
 
@@ -263,11 +289,27 @@ export default function Site() {
     const { data } = cloudClient.auth.onAuthStateChange((_, session) => setSession(session));
     return () => data.subscription.unsubscribe();
   }, [path]);
+  useEffect(() => {
+    if (!userId || profile.picture) return;
+    let active = true;
+    let url: string | undefined;
+    void readMicrosoftPhoto(userId).then((photo) => {
+      if (!active || !photo) return;
+      url = URL.createObjectURL(photo);
+      setMicrosoftPhoto({ userId, url });
+    }).catch(() => {});
+    return () => {
+      active = false;
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [userId, profile.picture]);
 
   const account: EditorAccount = {
     enabled: !!cloudClient,
-    userId: session?.user.id,
-    email: session?.user.email,
+    userId,
+    email: user?.email,
+    name: profile.name,
+    avatar: profile.picture ?? (microsoftPhoto?.userId === userId ? microsoftPhoto?.url : undefined),
     signOut: async () => {
       if (!cloudClient) return;
       const { error } = await cloudClient.auth.signOut({ scope: 'local' });
@@ -278,7 +320,23 @@ export default function Site() {
 
   if (path === '/') return <Home account={account} />;
   if (path === '/auth/callback') return <AuthCallback query={search} />;
-  if (path === '/sign-in') return <SignIn next={returnPath(search.get('next'))} />;
+  if (path === '/sign-in') {
+    const next = search.get('next');
+    return <SignIn next={returnPath(next && (next.startsWith('/share/') ? next + location.hash : next))} />;
+  }
+
+  const sharedId = path.match(/^\/share\/([^/]+)$/)?.[1];
+  if (sharedId && deckIdPattern.test(sharedId)) {
+    const token = /^[a-f\d]{64}$/.test(location.hash.slice(1)) ? location.hash.slice(1) : null;
+    if (cloudClient && session === undefined)
+      return <div className="site route-loading" role="status">Checking sign-in…</div>;
+    if (cloudClient && !token && !account.userId) return <SignIn next={path} />;
+    return (
+      <Suspense fallback={<div className="site route-loading" role="status">Opening shared workspace…</div>}>
+        <SharedDeck key={sharedId + ':' + (account.userId ?? 'guest')} id={sharedId} token={token} account={account} />
+      </Suspense>
+    );
+  }
 
   const match = path.match(/^\/editor\/([^/]+)$/);
   const id = match && deckIdPattern.test(match[1]) ? match[1] : undefined;

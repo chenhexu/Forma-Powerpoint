@@ -1,5 +1,6 @@
 import { cloudClient } from './authClient';
-import { restoreProjectData } from './storage';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { makeAsset } from './pptx';
 import { uid, type Deck, type ModelSourceFile, type Project } from './types';
 
 const manifestColumns = 'id,title,updated_at,trashed_at,revision,last_save_id';
@@ -10,7 +11,7 @@ const binaryType = 'application/octet-stream';
 type PartList = { parts: string[]; size: number };
 type MediaFile = PartList & { mime: string };
 type ModelFile = MediaFile & { path: string };
-type Snapshot = {
+export type Snapshot = {
   version: 1;
   deck: Deck;
   original: PartList;
@@ -97,21 +98,25 @@ async function mapRecord<T, U>(record: Record<string, T>, map: (item: T) => Prom
   return Object.fromEntries(result);
 }
 
-export class CloudDeckFiles {
+const samePartList = (a: PartList, b?: PartList) =>
+  a.size === b?.size && a.parts.join(',') === b.parts.join(',');
+
+export class ProjectFiles {
   private knownParts = new Set<string>();
   private uploaded = new WeakMap<Uint8Array | Blob, Promise<PartList>>();
 
   constructor(
-    private ownerId: string,
-    private deckId: string,
+    private connection: SupabaseClient,
+    private bucketName: string,
+    private directory: string,
   ) {}
 
   private partPath(part: string) {
-    return [this.ownerId, this.deckId, part].join('/');
+    return this.directory + '/' + part;
   }
 
   private bucket() {
-    return client().storage.from('forma-parts');
+    return this.connection.storage.from(this.bucketName);
   }
 
   private put(source: Uint8Array | Blob) {
@@ -182,24 +187,40 @@ export class CloudDeckFiles {
     return bytes;
   }
 
-  async read(value: unknown): Promise<Project> {
+  async read(value: unknown, previous?: { snapshot: Snapshot; project: Project }): Promise<Project> {
     const snapshot = readSnapshot(value);
-    const original = await this.bytes(snapshot.original);
-    const assets = await mapRecord(snapshot.assets, async ({ mime, ...ref }) => ({
-      bytes: await this.bytes(ref),
-      mime,
-    }));
+    const original = previous && samePartList(snapshot.original, previous.snapshot.original)
+      ? previous.project.original
+      : await this.bytes(snapshot.original);
+    const assets = await mapRecord(Object.fromEntries(
+      Object.entries(snapshot.assets).map(([id, ref]) => [id, { id, ref }]),
+    ), async ({ id, ref }) => {
+      const prior = previous?.snapshot.assets[id];
+      const loaded = previous?.project.assets[id];
+      return loaded && ref.mime === prior?.mime && samePartList(ref, prior)
+        ? loaded
+        : makeAsset(await this.bytes(ref), ref.mime);
+    });
     const modelSources = snapshot.modelSources
-      ? await mapRecord(snapshot.modelSources, async (files) => {
+      ? await mapRecord(Object.fromEntries(
+        Object.entries(snapshot.modelSources).map(([id, files]) => [id, { id, files }]),
+      ), async ({ id, files }) => {
           const result: ModelSourceFile[] = [];
-          for (const { mime, path, ...ref } of files) result.push({ path, file: await this.get(ref, mime) });
+          const prior = previous?.snapshot.modelSources?.[id];
+          const loaded = previous?.project.modelSources?.[id];
+          for (const [index, { mime, path, ...ref }] of files.entries()) {
+            const before = prior?.[index];
+            const source = loaded?.[index];
+            result.push(source && path === before?.path && mime === before.mime && samePartList(ref, before)
+              ? source : { path, file: await this.get(ref, mime) });
+          }
           return result;
         })
       : undefined;
-    return restoreProjectData({ deck: snapshot.deck, original, assets, modelSources });
+    return { deck: snapshot.deck, original, assets, modelSources };
   }
 
-  private async snapshot(project: Project): Promise<Snapshot> {
+  async snapshot(project: Project): Promise<Snapshot> {
     const original = await this.put(project.original);
     const assets = await mapRecord(project.assets, async ({ bytes, mime }) => ({
       ...(await this.put(bytes)),
@@ -214,6 +235,12 @@ export class CloudDeckFiles {
         })
       : undefined;
     return { version: 1, deck: project.deck, original, assets, modelSources };
+  }
+}
+
+export class CloudDeckFiles extends ProjectFiles {
+  constructor(private ownerId: string, private deckId: string) {
+    super(client(), 'forma-parts', [ownerId, deckId].join('/'));
   }
 
   async save(project: Project, saveId: string, revision?: number) {

@@ -76,13 +76,20 @@ Use **Slide Show → Rehearse Timings** to record how long you spend on each sli
 
 Use **File → Print / Save PDF** for slides, three-slide handouts, or speaker notes. In the browser print dialog, select **Save as PDF** for a PDF file. **Save Template** downloads a PowerPoint `.potx`. **File → Automation** can make slides from CSV, apply JSON recipes to the deck, and export saved custom shows as a ZIP of separate PPTX files. **Review → Check Accessibility** shows missing descriptions and the slide’s object reading order.
 
-1. Open **Collaborate → Create Room** and copy the random room code.
-2. Send the code yourself. Everyone opens the same Forma server, chooses **Collaborate → Join Room**, and pastes it.
-3. Edits sync over WebSockets. Use **Version History** to save or restore a named version for everyone. Use the comment tools to reply or resolve a thread.
+Sign in and open **Collaborate** to create a shared copy of a presentation. Reopen it from **My Decks → Shared presentations**. The original deck stays separate.
 
-Use the Vite development server for local testing. To serve Forma with the relay in production, run `npm ci`, `npm run build`, and `npm start` on the same machine. The server listens on port 4173 by default. For access across devices, serve it behind HTTPS and forward WebSocket upgrades on `/forma-rooms`, preserving the Host header. Everyone uses the resulting HTTPS address. Static hosting alone has no collaboration relay.
+- **Invite only.** Enter a collaborator’s Google account email and select Viewer, Commenter, or Editor. They open the invitation and sign in with that Google account.
+- **Anyone with the link.** Set a role, then copy the link or room code. A guest can open the link without signing in, or paste the code into **Collaborate → Join Room**. Resetting the link or switching to Invite only revokes access granted by the previous token.
+- **Here now.** Open the avatars or **Share** to see who is connected. Invite-only rooms show names. In link rooms, people outside the owner’s verified Google Workspace appear under shape names. If the owner uses a personal account, other people in a link room appear as guests.
 
-Rooms have no accounts. The code grants editing access to the shared presentation. The relay keeps rooms and their saved versions in memory. A room expires after 30 minutes with nobody connected, and a server restart clears the rooms. A shared deck can use up to 65 MiB of binary data, including its source file and loaded media. Export a PPTX or keep a local copy to save the shared work.
+Shared edits, comments, and named versions are stored in Supabase. The editor checks for changes about once a second. Without Supabase configured, the Vite dev server and `npm start` still support temporary room codes over `/forma-rooms`.
+
+### Enable cloud collaboration on Vercel
+
+1. Apply [the collaboration migration](supabase/migrations/20261125010000_collaboration.sql) in Supabase after the presentations migration. It creates the shared workspace tables and private storage bucket.
+2. In Supabase Auth, turn on **Allow anonymous sign-ins** for guests who join by link or room code. Invite-only sharing uses the existing Google provider. [Supabase Auth settings](https://supabase.com/docs/guides/auth/general-configuration)
+3. Deploy Forma to Vercel with its existing Supabase URL and publishable key.
+4. For email delivery from Forma, configure `RESEND_API_KEY`, `FORMA_INVITE_FROM` (a sender on a verified Resend domain), and `FORMA_SITE_URL` (your public Forma URL) in Vercel. Redeploy after adding them. Forma can also open your email app with the invitation filled in. [Resend email setup](https://resend.com/docs/api-reference/emails/send-email)
 
 ## Accounts and cloud decks
 
@@ -90,13 +97,13 @@ Forma opens at `/`. The editor at `/editor` supports importing, editing, exporti
 
 ### Configure the backend
 
-1. Create a Supabase project and apply the migration in [supabase/migrations](supabase/migrations), using the Supabase CLI or SQL Editor. The migration creates the private library and the private `forma-parts` bucket with ownership policies.
+1. Create a Supabase project and apply the migrations in [supabase/migrations](supabase/migrations) in order, using the Supabase CLI or SQL Editor.
 2. Configure [Google](https://supabase.com/docs/guides/auth/social-sign-in/auth-google) and [Microsoft Azure](https://supabase.com/docs/guides/auth/social-sign-in/auth-azure) in Supabase Auth. For Microsoft, register an app that supports personal, work, and school accounts, and configure the email verification claims described in the Azure guide. Use the provider callback URL shown by Supabase when configuring Google Cloud and Microsoft Entra. Store the provider client secrets in Supabase.
 3. Set **Site URL** in Supabase Auth to the public HTTPS address of Forma. Add that address with `/auth/callback` to **Redirect URLs**. For development, also add `http://127.0.0.1:5173/auth/callback` if that is your Vite address.
 4. Copy [.env.example](.env.example) to `.env.local`. Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` to the project URL and publishable key. Vite includes these values in the frontend build. Keep private keys and provider secrets out of the frontend environment.
-5. Run `npm run build` and `npm start` to serve the home page, callback, and editor routes from the existing Node server. In production proxy HTTPS and WebSocket upgrades to the same server. Run a separate Supabase project for staging if you need to test both OAuth providers before changing production settings.
+5. Run `npm run build` and `npm start` to serve Forma locally, or deploy the Vite project to Vercel.
 
-Cloud projects keep the source PPTX, editable slide data, and media. Save failures keep pending changes on the device when browser storage is available. If a second session saves first, use **Save a Copy** or **Reload Cloud Version**. Starting or joining a room from a cloud deck opens a temporary workspace. Use **Save a Copy to My Decks** to keep the shared result in your account. Moving a deck to Trash retains its files for restore.
+Cloud projects keep the source PPTX, editable slide data, and media. Private deck save failures keep pending changes on the device when browser storage is available. If a second session saves a private deck first, use **Save a Copy** or **Reload Cloud Version**. Moving a private deck to Trash retains its files for restore.
 
 To exercise cloud workflows locally without a Supabase project, run the browser test with the mock service configuration.
 

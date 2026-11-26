@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { attachRooms, ROOM_ENDPOINT } from './rooms.mjs';
 
 const root = fileURLToPath(new URL('../dist', import.meta.url));
-const appPath = /^\/(?:editor(?:\/[0-9a-f-]{36})?|decks|sign-in|auth\/callback)?\/?$/i;
+const appPath = /^\/(?:editor(?:\/[0-9a-f-]{36})?|share\/[0-9a-f-]{36}|decks|sign-in|auth\/callback)?\/?$/i;
 const mime = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',

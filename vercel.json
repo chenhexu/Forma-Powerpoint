@@ -1,9 +1,11 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "rewrites": [
-    {
-      "source": "/(.*)",
-      "destination": "/index.html"
-    }
+    { "source": "/editor", "destination": "/index.html" },
+    { "source": "/editor/:deckId", "destination": "/index.html" },
+    { "source": "/share/:roomId", "destination": "/index.html" },
+    { "source": "/sign-in", "destination": "/index.html" },
+    { "source": "/auth/callback", "destination": "/index.html" },
+    { "source": "/decks", "destination": "/index.html" }
   ]
 }

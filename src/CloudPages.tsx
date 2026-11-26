@@ -7,12 +7,14 @@ import { createCloudDeck, listCloudDecks, moveCloudDeck, type CloudDeckInfo } fr
 import { openCloudWorkspace, type CloudWorkspace } from './cloudWorkspace';
 import { createProject, importPptx, releaseProject } from './pptx';
 import type { Project } from './types';
+import { listSharedRooms, sharePath } from './sharedRooms';
 
 const detail = (error: unknown) =>
   error instanceof Error ? error.message : 'Something went wrong. Try again.';
 
 export function Library({ account, ownerId }: { account: EditorAccount; ownerId: string }) {
   const [decks, setDecks] = useState<CloudDeckInfo[]>();
+  const [shared, setShared] = useState<Awaited<ReturnType<typeof listSharedRooms>>>([]);
   const [trash, setTrash] = useState(false);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
@@ -29,6 +31,7 @@ export function Library({ account, ownerId }: { account: EditorAccount; ownerId:
 
   useEffect(() => {
     void refresh();
+    void listSharedRooms().then(setShared).catch(() => {});
   }, []);
 
   async function create(input?: File) {
@@ -163,6 +166,22 @@ export function Library({ account, ownerId }: { account: EditorAccount; ownerId:
               </li>
             ))}
           </ul>
+        )}
+        {!trash && !!shared.length && (
+          <section className="shared-library">
+            <h2>Shared presentations</h2>
+            <ul className="deck-list">
+              {shared.map((room) => (
+                <li key={room.id}>
+                  <span className="deck-icon"><Presentation size={21} /></span>
+                  <div className="deck-row-title">
+                    <a href={sharePath(room.id)}>{room.title}</a>
+                    <small>{room.role === 'owner' ? 'Owned by you' : 'Shared with you'}</small>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </section>
         )}
       </main>
     </div>

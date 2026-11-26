@@ -145,6 +145,12 @@ svg {
   background: var(--accent);
   color: white;
 }
+.brand-icon svg {
+  display: block;
+  width: 37px;
+  height: 37px;
+  border-radius: 10px;
+}
 .brand-divider,
 .status-divider {
   display: inline-block;
@@ -4223,4 +4229,80 @@ fieldset {
   max-height: 32dvh;
   overflow: auto;
   padding-left: 20px;
+}
+
+.room-people {
+  gap: 2px;
+  padding-inline: 4px;
+}
+.room-avatar {
+  display: inline-grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border-radius: 50%;
+  color: white;
+  font-size: 14px;
+  font-weight: 700;
+}
+.room-people > span {
+  display: inline-flex;
+}
+.room-person, .share-access-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.room-person > span:nth-child(2) {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  flex: 1;
+}
+.room-person small, .share-form h3 small, .share-form section > p {
+  color: var(--muted);
+}
+.room-person-email {
+  display: block;
+}
+.room-select {
+  position: relative;
+  display: inline-flex;
+  max-width: 100%;
+}
+.room-select select {
+  appearance: none;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--panel);
+  color: inherit;
+  padding: 6px 24px 6px 8px;
+}
+.room-select svg {
+  position: absolute;
+  top: 50%;
+  right: 7px;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+.share-invite-form label {
+  flex: 1 1 160px;
+  min-width: 0;
+}
+.share-form section > p, .share-form > p {
+  margin: 0;
+}
+.share-form a.button {
+  width: fit-content;
+  text-decoration: none;
+}
+.share-form label:not(.insert-check) {
+  font-size: 13px;
+}
+.share-form summary {
+  cursor: pointer;
+  font-weight: 650;
+}
+.share-form details[open] > form {
+  margin-block: 8px;
 }

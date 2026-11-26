@@ -4,13 +4,16 @@ import { AutomationTools } from './AutomationTools';
 import { CustomShows } from './ShowTools';
 import { PrintSlides } from './PrintSlides';
 import { CollaborationDialog } from './CollaborationDialog';
+import { AccountAvatar } from './AccountAvatar';
+import { RoomPeople, ShareDialog } from './ShareDialog';
+import { createSharedRoom, participantName, sharePath, type SharedRoom, type SharedRoomState, type ShareRole } from './sharedRooms';
 import { ZoomPercentage } from './ZoomPercentage';
 import { SidebarResize, SidebarTabs, type EditorPane } from './EditorSidebar';
 import { emptyRoom, RoomClient } from './collaboration';
 import { createCloudDeck } from './cloudStore';
 import type { CloudWorkspace } from './cloudWorkspace';
 import type { EditorAccount } from './Site';
-import { applyDeckPatch } from './deckPatch.mjs';
+import { applyDeckPatch, diffDeck } from './deckPatch.mjs';
 import { MediaSettings, RecordAudio } from './MediaSettings';
 import { SpeakerNotesDialog, openPresenterWindow } from './PresenterTools';
 import { hasInkRecognition, recognizeInk } from './inkRecognition';
@@ -57,7 +60,6 @@ import {
   Ban,
   Box,
   Check,
-  CircleUserRound,
   Cloud,
   ChevronLeft,
   ChevronRight,
@@ -194,6 +196,7 @@ import {
   type Transition,
 } from './types';
 import { Ribbon, Dropdown, RibbonGroup, type RibbonTab, type FormatTab } from './Ribbon';
+import { FormaMark } from './FormaMark';
 import { paragraphFormatKeys, runFormatKeys } from './textFormat';
 import { ContextMenu, type MenuItem } from './ContextMenu';
 import { ListStyleMenu } from './ListStyleMenu';
@@ -745,7 +748,10 @@ async function initialProject(withDemo: boolean) {
   return project;
 }
 
-export default function App({ account, cloud }: { account: EditorAccount; cloud?: CloudWorkspace }) {
+export default function App({ account, cloud, shared }: {
+  account: EditorAccount; cloud?: CloudWorkspace; shared?: { room: SharedRoom; state: SharedRoomState };
+}) {
+  const sharedRoom = shared?.room;
   const [preferences, setPreferences] = useState(readPreferences);
   const [options, setOptions] = useState<OptionsSection>();
   useEffect(() => {
@@ -753,7 +759,9 @@ export default function App({ account, cloud }: { account: EditorAccount; cloud?
   }, [preferences]);
   const [project, setProjectState] = useState<Project | null>(null);
   const [roomStatus, setRoomStatus] = useState(emptyRoom);
-  const [showRoom, setShowRoom] = useState(false);
+  const [showRoom, setShowRoom] = useState(() =>
+    shared?.state.info.self.role === 'owner' && new URLSearchParams(location.search).has('setup'),
+  );
   const [cloudStatus, setCloudStatus] = useState(cloud?.status);
   const roomClient = useRef<RoomClient>(undefined);
   const roomOrigin = useRef<Project>(undefined);
@@ -973,14 +981,15 @@ export default function App({ account, cloud }: { account: EditorAccount; cloud?
       current.current = next;
       setProjectState(next);
       if (next) roomClient.current?.change(next);
+      if (next) sharedRoom?.change(next);
     },
-    [],
+    [sharedRoom],
   );
   useEffect(
     () => () => {
       roomClient.current?.close();
       if (roomOrigin.current) releaseProject(roomOrigin.current, current.current ?? undefined);
-      if (current.current) releaseProject(current.current);
+      if (current.current && !sharedRoom) releaseProject(current.current);
     },
     [],
   );
@@ -1217,7 +1226,7 @@ export default function App({ account, cloud }: { account: EditorAccount; cloud?
       if (roomOrigin.current && roomOrigin.current !== p) releaseProject(roomOrigin.current, p);
       roomOrigin.current = undefined;
     }
-    if (previous && previous !== p && previous !== roomOrigin.current) releaseProject(previous, p);
+    if (!sharedRoom && previous && previous !== p && previous !== roomOrigin.current) releaseProject(previous, p);
     generation.current++;
     setClipboard([]);
     clipboardSlide.current = undefined;
@@ -1307,6 +1316,11 @@ export default function App({ account, cloud }: { account: EditorAccount; cloud?
   useEffect(() => {
     let canceled = false;
     (async () => {
+      if (sharedRoom) {
+        adopt(sharedRoom.getState().project);
+        setBusy('');
+        return;
+      }
       if (cloud) {
         adopt(cloud.project);
         setBusy('');
@@ -1329,6 +1343,32 @@ export default function App({ account, cloud }: { account: EditorAccount; cloud?
       canceled = true;
     };
   }, []);
+  useEffect(() => {
+    const next = shared?.state.project;
+    const prior = current.current;
+    if (!next || !prior || next === prior) return;
+    const changes = diffDeck(prior.deck, next.deck);
+    if (changes) history.current?.rebase((deck) => applyDeckPatch(deck, changes), next.deck);
+    const slideId = prior.deck.slides[indexRef.current]?.id;
+    const match = next.deck.slides.findIndex((slide) => slide.id === slideId);
+    const position = match < 0 ? Math.min(indexRef.current, next.deck.slides.length - 1) : match;
+    current.current = next;
+    setProjectState(next);
+    setIndex(position);
+    setSelection((ids) => ids.filter((id) => next.deck.slides[position].objects.some((object) => object.id === id)));
+    if (match < 0) {
+      setEditRequest(null);
+      setOrbit(false);
+    }
+  }, [shared?.state.project]);
+  useEffect(() => {
+    if (!sharedRoom) return;
+    const warn = (event: BeforeUnloadEvent) => {
+      if (sharedRoom.pending) event.preventDefault();
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [sharedRoom]);
   useEffect(() => {
     if (!cloud) return;
     const unwatch = cloud.watch(setCloudStatus);
@@ -1445,6 +1485,7 @@ export default function App({ account, cloud }: { account: EditorAccount; cloud?
   }, [scale, slide?.id, slide?.objects]);
   useEffect(() => {
     if (!project) return;
+    if (sharedRoom) return;
     if (cloud) {
       if (!roomOrigin.current) cloud.track(project);
       return;
@@ -1471,7 +1512,7 @@ export default function App({ account, cloud }: { account: EditorAccount; cloud?
       active = false;
       clearTimeout(timer);
     };
-  }, [project, preferences.localRecovery, cloud]);
+  }, [project, preferences.localRecovery, cloud, sharedRoom]);
   useEffect(() => {
     if (!notice) return;
     const timer = setTimeout(() => setNotice(''), 6500);
@@ -2647,6 +2688,12 @@ export default function App({ account, cloud }: { account: EditorAccount; cloud?
   function saveInsertion(result: InsertResult) {
     if (!deck || !slide) return;
     if (result.type !== 'comment-resolve') setInsertDialog(null);
+    if (sharedRoom && (result.type === 'comment' || result.type === 'comment-resolve')) {
+      void sharedRoom.comment(slide.id, result.type === 'comment'
+        ? { id: uid(), text: result.text, replyTo: result.replyTo }
+        : { id: result.id, resolved: result.resolved }).catch((error) => setNotice(message(error)));
+      return;
+    }
     switch (result.type) {
       case 'table':
         if (result.objectId) patch(result.objectId, { table: result.data });
@@ -2924,13 +2971,21 @@ export default function App({ account, cloud }: { account: EditorAccount; cloud?
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
     const active = current.current;
     if (!active) return;
-    if (cloud) {
+    if (sharedRoom) {
+      await sharedRoom.finishEditing();
+    } else if (cloud) {
       if (!roomOrigin.current) cloud.track(active);
       await cloud.finishEditing();
     } else if (forceLocal || preferences.localRecovery) {
       await savedQueue.current.catch(() => {});
       await saveProject(active);
     }
+  }
+  async function sharePresentation(role: ShareRole | null) {
+    await saveBeforeLeaving(true);
+    if (!current.current) return;
+    const id = await createSharedRoom(current.current, role);
+    location.assign(sharePath(id) + '?setup=1');
   }
   async function leaveEditor(destination: string | (() => Promise<void>)) {
     setBusy('Saving workspace…');
@@ -5495,7 +5550,7 @@ export default function App({ account, cloud }: { account: EditorAccount; cloud?
           onClick={() => void leaveEditor('/')}
         >
           <span className="brand-icon">
-            <Layers size={22} />
+            <FormaMark title="Forma" />
           </span>
           forma
           <span className="brand-divider" />
@@ -5541,21 +5596,23 @@ export default function App({ account, cloud }: { account: EditorAccount; cloud?
               )}
             </div>
           )}
+          {shared && <RoomPeople participants={shared.state.info.participants} open={() => setShowRoom(true)} />}
           <button
             type="button"
             className="button collaborate-button"
-            aria-label="Collaborate"
+            aria-label={shared ? 'Share presentation' : 'Collaborate'}
             disabled={!project || !!busy}
             onClick={() => setShowRoom(true)}
           >
             <Users size={15} />
             <span>
-              {roomStatus.code ? `Live${roomStatus.people ? ' · ' + roomStatus.people : ''}` : 'Collaborate'}
+              {shared ? 'Share' : roomStatus.code ? `Live${roomStatus.people ? ' · ' + roomStatus.people : ''}` : 'Collaborate'}
             </span>
           </button>
           <span className="local-status">
             {cloud ? <Cloud size={14} /> : <ShieldCheck size={14} />}
-            {cloud ? (roomOrigin.current ? 'Room workspace' : cloudStatus?.label) : saved}
+            {shared ? (shared.state.retrying ? 'Reconnecting…' : sharedRoom?.pending ? 'Saving shared changes…' : 'Shared workspace')
+              : cloud ? (roomOrigin.current ? 'Room workspace' : cloudStatus?.label) : saved}
           </span>
           <button
             className="button"
@@ -5588,8 +5645,8 @@ export default function App({ account, cloud }: { account: EditorAccount; cloud?
                 event.currentTarget.querySelector('summary')?.focus();
               }}
             >
-              <summary className="button" aria-label="Account" title="Account">
-                <CircleUserRound size={17} />
+              <summary className="button" aria-label="Account" title={account.name || account.email || 'Account'}>
+                <AccountAvatar {...account} />
               </summary>
               <div className="editor-account-panel">
                 {account.email && <small>{account.email}</small>}
@@ -6016,7 +6073,7 @@ export default function App({ account, cloud }: { account: EditorAccount; cloud?
           <div className="canvas-caption">
             <span>
               <LockKeyhole size={12} />
-              {roomStatus.code || (cloud && roomOrigin.current)
+              {shared || roomStatus.code || (cloud && roomOrigin.current)
                 ? 'Shared room workspace'
                 : cloud
                   ? cloudStatus?.label
@@ -6682,6 +6739,7 @@ export default function App({ account, cloud }: { account: EditorAccount; cloud?
           state={insertDialog}
           slides={deck.slides}
           comments={slide.comments ?? []}
+          fixedAuthor={shared && participantName(shared.state.info.self)}
           close={() => setInsertDialog(null)}
           save={saveInsertion}
         />
@@ -7121,7 +7179,9 @@ export default function App({ account, cloud }: { account: EditorAccount; cloud?
           </section>
         </div>
       )}
-      {showRoom && project && (
+      {showRoom && shared && <ShareDialog room={shared.room} info={shared.state.info}
+        error={shared.state.error} retrying={shared.state.retrying} close={() => setShowRoom(false)} />}
+      {showRoom && project && !shared && (
         <CollaborationDialog
           status={roomStatus}
           create={() => connectRoom('create')}
@@ -7131,6 +7191,11 @@ export default function App({ account, cloud }: { account: EditorAccount; cloud?
           close={() => setShowRoom(false)}
           checkpoint={(name) => roomClient.current?.checkpoint(name)}
           restore={(id) => roomClient.current?.restore(id)}
+          cloud={account.enabled ? {
+            signedIn: !!account.userId,
+            create: sharePresentation,
+            signIn: () => void leaveEditor('/sign-in?next=%2Feditor'),
+          } : undefined}
         />
       )}
       {automationOpen && deck && (

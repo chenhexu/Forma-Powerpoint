@@ -623,28 +623,22 @@ function CommentsForm({
   comments,
   close,
   save,
+  fixedAuthor,
+  readOnly,
 }: {
   state: Extract<InsertDialogState, { type: 'comment' }>;
   comments: SlideComment[];
   close: () => void;
   save: (result: InsertResult) => void;
+  fixedAuthor?: string;
+  readOnly?: boolean;
 }) {
   const [replyTo, reply] = useState<string>();
   const [showResolved, setShowResolved] = useState(false);
   const parent = comments.find(({ id }) => id === replyTo);
   const ids = new Set(comments.map(({ id }) => id));
   const roots = comments.filter((item) => !item.replyTo || !ids.has(item.replyTo));
-  return (
-    <Form
-      label={parent ? 'Add Reply' : 'Add Comment'}
-      close={close}
-      submit={(form) => {
-        const text = String(form.get('comment') || '').trim();
-        const author = String(form.get('author') || '').trim() || 'Forma';
-        if (text) save({ type: 'comment', text, author, replyTo: parent?.id });
-      }}
-    >
-      {!!roots.length && (
+  const threads = roots.length ? (
         <>
           {roots.some(({ resolved }) => resolved) && (
             <label className="insert-check">
@@ -672,7 +666,7 @@ function CommentsForm({
                         <p>{comment.text}</p>
                       </div>
                     ))}
-                  <div className="insert-form-row">
+                  {!readOnly && <div className="insert-form-row">
                     <button
                       type="button"
                       className="button"
@@ -688,15 +682,27 @@ function CommentsForm({
                     >
                       {item.resolved ? 'Reopen' : 'Resolve'}
                     </button>
-                  </div>
+                  </div>}
                 </li>
               ))}
           </ul>
         </>
-      )}
-      <label>
+  ) : <p>No comments on this slide.</p>;
+  if (readOnly) return <div className="insert-form">{threads}</div>;
+  return (
+    <Form
+      label={parent ? 'Add Reply' : 'Add Comment'}
+      close={close}
+      submit={(form) => {
+        const text = String(form.get('comment') || '').trim();
+        const author = fixedAuthor || String(form.get('author') || '').trim() || 'Forma';
+        if (text) save({ type: 'comment', text, author, replyTo: parent?.id });
+      }}
+    >
+      {threads}
+      {!fixedAuthor && <label>
         Name <input name="author" maxLength={64} defaultValue={state.author} />
-      </label>
+      </label>}
       <label>
         {parent ? `Reply to ${parent.author}` : 'Comment'}{' '}
         <textarea name="comment" rows={3} maxLength={4000} required />
@@ -716,12 +722,16 @@ export function InsertDialog({
   comments,
   close,
   save,
+  fixedAuthor,
+  readOnly,
 }: {
   state: InsertDialogState;
   slides: Slide[];
   comments: SlideComment[];
   close: () => void;
   save: (data: InsertResult) => void;
+  fixedAuthor?: string;
+  readOnly?: boolean;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const titleId = useId();
@@ -839,7 +849,7 @@ export function InsertDialog({
       break;
     case 'comment':
       title = 'Slide Comments';
-      body = <CommentsForm state={state} comments={comments} close={close} save={save} />;
+      body = <CommentsForm state={state} comments={comments} close={close} save={save} fixedAuthor={fixedAuthor} readOnly={readOnly} />;
       break;
   }
   return (
